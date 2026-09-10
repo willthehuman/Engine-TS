@@ -47,6 +47,7 @@ export class BotPlayer {
     private lastMoveTick = -1;
     private actionsThisMinute = 0;
     private minuteWindowStart = Date.now();
+    private lastWalkKey = '';
     static readonly SAY_COOLDOWN_TICKS = 5; // 1 say / 3s
     static readonly MOVE_COOLDOWN_TICKS = 1; // 2 moves / s
     static readonly MAX_ACTIONS_PER_MIN = 25;
@@ -235,8 +236,8 @@ export class BotPlayer {
         }
         const dx = Math.abs(target.x - p.x);
         const dz = Math.abs(target.z - p.z);
-        if (Math.max(dx, dz) > 16) {
-            return { ok: false, reason: 'cant_see' };
+        if (Math.max(dx, dz) > this.persona.hearDistance) {
+            return { ok: false, reason: 'cant_see' }; // same radius perception reports
         }
         if (!this.spendAction()) {
             return { ok: false, reason: 'action_budget' };
@@ -287,7 +288,12 @@ export class BotPlayer {
         if (!this.pathAndQueue(x, z)) {
             return { ok: false, reason: 'no_path' };
         }
-        botLog.append('action', { action: 'walk', x, z, routine: this.currentRoutineName });
+        const key = x + ',' + z + ':' + (this.currentRoutineName ?? '');
+        if (key !== this.lastWalkKey) {
+            // dedupe: re-issues of the same leg log once
+            this.lastWalkKey = key;
+            botLog.append('action', { action: 'walk', x, z, routine: this.currentRoutineName });
+        }
         return { ok: true };
     }
 

@@ -88,7 +88,9 @@ export function eatSomething(bot: BotPlayer): { ok: boolean; item?: string } {
         bot.player.lastSlot = slot;
         const script = ScriptProvider.getByTrigger(ServerTriggerType.OPHELD1 + idx, obj.id, obj.category);
         if (script) {
-            bot.player.executeScript(ScriptRunner.init(script, bot.player), true);
+            // force: combat delays must not silently swallow the heal (runScript
+            // returns -1 when protect && delayed — a starving Pepe would retreat)
+            bot.player.executeScript(ScriptRunner.init(script, bot.player), true, true);
             botLog.append('action', { action: 'eat', item: obj.debugname });
             return { ok: true, item: obj.name ?? obj.debugname ?? undefined };
         }
@@ -224,6 +226,7 @@ export class CombatTrainRoutine implements Routine {
                     const nm = (t?.name ?? '').toLowerCase();
                     if (!nm.includes(needle)) continue;
                     if (npc.level !== p.level) continue;
+                    if (npc.levels[3] <= 0) continue; // corpse: never target the dying
                     const dist = Math.max(Math.abs(npc.x - p.x), Math.abs(npc.z - p.z));
                     if (dist < bestDist) {
                         bestDist = dist;
@@ -242,14 +245,27 @@ export class CombatTrainRoutine implements Routine {
                         const tx = p.x + Math.round((best.x - p.x) * scale);
                         const tz = p.z + Math.round((best.z - p.z) * scale);
                         if (!bot.walkSegment(tx, tz).ok) {
-                            this.report(bot, 'no_path');
-                            return 'aborted';
+                            // straight-line hop blocked: shorter hops before giving up
+                            let hopped = false;
+                            for (const seg of [25, 12, 6]) {
+                                const s = Math.min(1, seg / bestDist);
+                                const hx = p.x + Math.round((best.x - p.x) * s);
+                                const hz = p.z + Math.round((best.z - p.z) * s);
+                                if (bot.walkSegment(hx, hz).ok) {
+                                    hopped = true;
+                                    break;
+                                }
+                            }
+                            if (!hopped) {
+                                this.report(bot, 'no_path');
+                                return 'aborted';
+                            }
                         }
                     }
                     return 'running';
                 }
                 const opIdx = attackOpIndex(best);
-                if (opIdx < 0 || opIdx !== 2) {
+                if (opIdx < 0) {
                     botLog.append('reflex', { kind: 'train_not_attackable', npc: this.npcName, op: opIdx });
                     this.report(bot, 'not_attackable');
                     return 'aborted';

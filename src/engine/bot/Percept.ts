@@ -27,8 +27,8 @@ export const Percept = {
         if (sender.level !== bot.player.level) {
             return false; // different height level = can't see/hear
         }
-        if (sender.publicChat === ChatModePublic.HIDE) {
-            return false; // sender chose to hide from others
+        if (sender.publicChat === ChatModePublic.HIDE || sender.publicChat === ChatModePublic.FRIENDS) {
+            return false; // sender hides from others / friends-only — Pepe is no friend
         }
         const dx = sender.x - bot.player.x;
         const dz = sender.z - bot.player.z;

@@ -72,6 +72,9 @@ export class TalkRoutine implements Routine {
                     if (npc.level !== p.level) {
                         continue;
                     }
+                    if (npc.levels[3] <= 0) {
+                        continue; // corpse: never talk to the dying
+                    }
                     const dx = npc.x - p.x;
                     const dz = npc.z - p.z;
                     const dist = Math.sqrt(dx * dx + dz * dz);

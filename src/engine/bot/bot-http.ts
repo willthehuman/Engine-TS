@@ -8,6 +8,8 @@ import { botLog } from './EventLog.js';
 import { Percept } from './Percept.js';
 import { compileGoal } from './goals.js';
 import { CombatTrainRoutine } from './combat.js';
+import { InteractRoutine } from './interact.js';
+import { UseItemRoutine, inventorySnapshot, ItemOpRoutine } from './use_item.js';
 import { currentDialog, resetDialog } from './dialog.js';
 import ScriptState from '#/engine/script/ScriptState.js';
 import World from '#/engine/World.js';
@@ -50,18 +52,48 @@ export async function startBotHttp(): Promise<void> {
             targetName: bot.player.target && bot.player.target instanceof Npc ? (NpcType.get(bot.player.target.type)?.name ?? null) : null,
             targetHp: bot.player.target && bot.player.target instanceof Npc ? bot.player.target.levels[3] : null,
             hasInteraction: bot.player.hasInteraction(),
+            canAccess: bot.player.canAccess(),
+            targetValid: (() => {
+                try {
+                    return bot.player.validateTarget();
+                } catch {
+                    return null;
+                }
+            })(),
+            apRange: bot.player.apRange,
+            targetOp: bot.player.targetOp,
             waypoints: bot.player.waypointIndex !== -1,
             protect: bot.player.protect,
             delayed: bot.player.delayed
         };
         const pp = bot.player;
-        snap.skills = {
-            attack: { level: pp.levels[0], xp: pp.stats[0] },
-            defence: { level: pp.levels[1], xp: pp.stats[1] },
-            strength: { level: pp.levels[2], xp: pp.stats[2] },
-            hitpoints: { level: pp.levels[3], xp: pp.stats[3] },
-            prayer: { level: pp.levels[5], xp: pp.stats[5] }
-        };
+        const SKILL_NAMES = [
+            'attack',
+            'defence',
+            'strength',
+            'hitpoints',
+            'ranged',
+            'prayer',
+            'magic',
+            'cooking',
+            'woodcutting',
+            'fletching',
+            'fishing',
+            'firemaking',
+            'crafting',
+            'smithing',
+            'mining',
+            'herblore',
+            'agility',
+            'thieving',
+            'stat18',
+            'stat19',
+            'runecraft'
+        ];
+        snap.skills = {};
+        for (let si = 0; si < SKILL_NAMES.length && si < pp.levels.length; si++) {
+            (snap.skills as Record<string, unknown>)[SKILL_NAMES[si]] = { level: pp.levels[si], xp: pp.stats[si] };
+        }
         return snap;
     });
 
@@ -228,6 +260,19 @@ export async function startBotHttp(): Promise<void> {
         };
     });
 
+    app.get('/inventory', async () => {
+        const bot = getBot();
+        if (!bot) {
+            return { error: 'no bot attached' };
+        }
+        const rows = inventorySnapshot(bot);
+        return {
+            count: rows.length,
+            free_slots: (bot.player.invs.get(InvType.INV)?.capacity ?? 28) - rows.length,
+            items: rows
+        };
+    });
+
     app.get('/chat-tail', async req => {
         const n = Math.min(Number((req.query as Record<string, string>).n ?? 10) || 10, 30);
         return { events: botLog.tail('chat', n) };
@@ -269,6 +314,40 @@ export async function startBotHttp(): Promise<void> {
                 bot.clearRoutines();
                 bot.enqueue(new CombatTrainRoutine(npc, Number.isFinite(kills) && kills > 0 ? Math.round(kills) : 0));
                 return { action, ok: true, npc, kills: kills > 0 ? kills : 'endless' };
+            }
+            case 'interact': {
+                const query = String(args.target ?? args.query ?? '').trim();
+                const op = args.op === undefined ? 1 : typeof args.op === 'number' ? args.op : String(args.op);
+                if (!query) {
+                    return { action, ok: false, reason: 'no_target' };
+                }
+                bot.clearRoutines();
+                bot.enqueue(new InteractRoutine(query, op as string | number));
+                return { action, ok: true, target: query, op: String(op) };
+            }
+            case 'use_item': {
+                const item = String(args.item ?? '').trim();
+                const on = String(args.on ?? '').trim();
+                if (!item || !on) {
+                    return { action, ok: false, reason: 'need_item_and_target' };
+                }
+                const onKind = String(args.kind ?? 'loc')
+                    .trim()
+                    .toLowerCase();
+                const kind = (['item', 'loc', 'npc', 'obj'].includes(onKind) ? onKind : 'loc') as 'item' | 'loc' | 'npc' | 'obj';
+                bot.clearRoutines();
+                bot.enqueue(new UseItemRoutine(item, kind, on));
+                return { action, ok: true, item, on, kind };
+            }
+            case 'item_op': {
+                const item = String(args.item ?? '').trim();
+                const op = String(args.op ?? '').trim();
+                if (!item || !op) {
+                    return { action, ok: false, reason: 'need_item_and_op' };
+                }
+                bot.clearRoutines();
+                bot.enqueue(new ItemOpRoutine(item, op));
+                return { action, ok: true, item, op };
             }
             case 'set_goal': {
                 const steps = Array.isArray(args.steps) ? (args.steps as string[]) : [];
