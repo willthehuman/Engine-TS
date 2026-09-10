@@ -113,8 +113,8 @@ export class BotPlayer {
 
         // step the routine queue
         if (this.routine) {
-            const done = this.routine.step(this);
             this.currentRoutineName = this.routine.constructor.name;
+            const done = this.routine.step(this);
             if (done === 'done') {
                 this.routine = null;
                 this.currentRoutineName = null;
@@ -287,7 +287,7 @@ export class BotPlayer {
         if (!this.pathAndQueue(x, z)) {
             return { ok: false, reason: 'no_path' };
         }
-        botLog.append('action', { action: 'walk', x, z });
+        botLog.append('action', { action: 'walk', x, z, routine: this.currentRoutineName });
         return { ok: true };
     }
 
