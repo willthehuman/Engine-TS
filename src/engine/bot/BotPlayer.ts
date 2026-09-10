@@ -82,6 +82,16 @@ export class BotPlayer {
         return bot;
     }
 
+    /** Persist the character save file immediately (mirrors LoginThread's write path). */
+    saveNow(): boolean {
+        try {
+            fs.writeFileSync(`data/players/main/${this.player.username}.sav`, this.player.save());
+            return true;
+        } catch {
+            return false;
+        }
+    }
+
     /** Tick — called from World.cycle() every game tick. Must stay cheap. */
     tick(): void {
         const p = this.player;

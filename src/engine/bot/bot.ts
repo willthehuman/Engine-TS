@@ -8,6 +8,7 @@ import { NetworkPlayer } from '#/engine/entity/NetworkPlayer.js';
 import { BotPlayer, DEFAULT_PERSONA } from './BotPlayer.js';
 import { Brain } from './brain.js';
 import { Percept } from './Percept.js';
+import { captureDialogText } from './dialog.js';
 import { botLog } from './EventLog.js';
 
 export const brain = new Brain();
@@ -34,6 +35,12 @@ export async function startBot(): Promise<void> {
     started = true;
 
     const bot = await BotPlayer.attach();
+    // dialog capture: sniff write() for IfSetText/IfOpenChat/IfClose
+    const origWrite = bot.player.write.bind(bot.player);
+    bot.player.write = (msg: unknown) => {
+        captureDialogText(msg);
+        origWrite(msg as never);
+    };
     brain.register(bot);
     console.log(`[pepe] attached: ${bot.player.username} at ${bot.player.x},${bot.player.z},${bot.player.level}`);
 

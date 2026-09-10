@@ -4,6 +4,7 @@
 // Fires ONLY on interesting events; never in the tick loop.
 
 import { Percept } from './Percept.js';
+import { compileGoal } from './goals.js';
 import { botLog } from './EventLog.js';
 import type { BotPlayer } from './BotPlayer.js';
 import type Player from '#/engine/entity/Player.js';
@@ -89,7 +90,8 @@ ${chatLines.join('\n')}
 Someone is talking to you or the chat needs a response. Reply as Pepe.
 Respond with ONLY a small JSON object, no markdown, no backticks:
 {"say": "<one short chat line>"}
-You may also add "move": {"x": <int>, "z": <int>} to walk somewhere first (rare).`;
+You may also add "move": {"x": <int>, "z": <int>} to walk somewhere first (rare).
+You may add "goal": ["find_npc:<name>", "goto:<x>,<z>", "wait:<seconds>"] to start a task (rare).`;
 }
 
 function nearbyLine(snap: Record<string, unknown>): string {
@@ -112,6 +114,7 @@ function nearbyLine(snap: Record<string, unknown>): string {
 interface Plan {
     say?: string;
     move?: { x: number; z: number };
+    goal?: string[];
 }
 
 export async function decide(bot: BotPlayer): Promise<void> {
@@ -191,7 +194,17 @@ async function applyPlan(bot: BotPlayer, plan: Plan, events: import('./EventLog.
         const res = bot.moveTo(plan.move.x, plan.move.z);
         botLog.append('action', { action: 'plan_move', x: plan.move.x, z: plan.move.z, ok: res.ok });
     }
-    if (!plan.say && !plan.move) {
+    if (Array.isArray(plan.goal) && plan.goal.length) {
+        const routines = compileGoal(plan.goal.map(String));
+        if (routines.length) {
+            bot.clearRoutines();
+            for (const r of routines) {
+                bot.enqueue(r);
+            }
+            botLog.append('action', { action: 'plan_goal', steps: plan.goal });
+        }
+    }
+    if (!plan.say && !plan.move && !plan.goal) {
         botLog.append('action', { action: 'noop_plan', raw: raw.slice(0, 120) });
     }
     bot.brainState = 'idle';
