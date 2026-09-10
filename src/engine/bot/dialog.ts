@@ -27,6 +27,54 @@ export interface DialogSnapshot {
 let current: DialogSnapshot | null = null;
 let unreachable = false;
 
+/**
+ * Strategist dialog callback (questing unlock). When the soul routes a dialog
+ * choice, talk.ts forwards the options via webhook and parks here waiting for
+ * the agent's pick (via /act dialog_pick). Single slot — one bot, one dialog.
+ */
+let pendingSig: string | null = null;
+let pendingPick: number | null = null;
+
+/** Park the current options page, awaiting the soul's pick. Idempotent per sig. */
+export function requestDialogChoice(sig: string): boolean {
+    if (pendingSig === sig) {
+        return false; // already forwarded
+    }
+    pendingSig = sig;
+    pendingPick = null;
+    return true;
+}
+
+/** Agent's answer: the comId to click (must still be among resumeButtons). */
+export function resolveDialogChoice(comId: number): boolean {
+    if (!pendingSig) {
+        return false;
+    }
+    pendingPick = comId;
+    return true;
+}
+
+/** Consume the pick if it answers the given dialog page, else null. */
+export function consumeDialogChoice(sig: string): number | null {
+    if (pendingSig !== sig || pendingPick === null) {
+        return null;
+    }
+    const pick = pendingPick;
+    pendingSig = null;
+    pendingPick = null;
+    return pick;
+}
+
+/** Drop a stale request (timeout fallback / dialog closed). */
+export function clearDialogChoice(): void {
+    pendingSig = null;
+    pendingPick = null;
+}
+
+export function dialogChoicePending(): string | null {
+    return pendingSig;
+}
+
 /** Called from the write-intercept in bot.ts for every ServerGameMessage Pepe "sends". */
 export function captureDialogText(msg: unknown): void {
     if (msg instanceof MessageGame) {

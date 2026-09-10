@@ -11,6 +11,7 @@ import { CombatTrainRoutine } from './combat.js';
 import { InteractRoutine } from './interact.js';
 import { UseItemRoutine, inventorySnapshot, ItemOpRoutine } from './use_item.js';
 import { currentDialog, resetDialog } from './dialog.js';
+import { resolveDialogChoice, dialogChoicePending } from './dialog.js';
 import ScriptState from '#/engine/script/ScriptState.js';
 import World from '#/engine/World.js';
 import NpcType from '#/cache/config/NpcType.js';
@@ -348,6 +349,18 @@ export async function startBotHttp(): Promise<void> {
                 bot.clearRoutines();
                 bot.enqueue(new ItemOpRoutine(item, op));
                 return { action, ok: true, item, op };
+            }
+            case 'dialog_pick': {
+                const comId = Number(args.comId);
+                if (!Number.isInteger(comId)) {
+                    return { action, ok: false, reason: 'need_comId' };
+                }
+                const pending = dialogChoicePending();
+                if (!pending) {
+                    return { action, ok: false, reason: 'nothing_pending' };
+                }
+                const ok = resolveDialogChoice(comId);
+                return { action, ok, comId, pending };
             }
             case 'set_goal': {
                 const steps = Array.isArray(args.steps) ? (args.steps as string[]) : [];

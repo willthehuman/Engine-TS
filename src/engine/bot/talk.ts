@@ -15,7 +15,8 @@ import NpcType from '#/cache/config/NpcType.js';
 import { botLog } from './EventLog.js';
 import type { BotPlayer } from './BotPlayer.js';
 import type { Routine } from './routines.js';
-import { currentDialog, wasUnreachable, clearDialogFlags } from './dialog.js';
+import { currentDialog, wasUnreachable, clearDialogFlags, requestDialogChoice, consumeDialogChoice, clearDialogChoice } from './dialog.js';
+import { soulRoutingEnabled, forwardNotice } from './webhook.js';
 import { findPath } from '#/engine/GameMap.js';
 
 enum Phase {
@@ -40,6 +41,8 @@ export class TalkRoutine implements Routine {
     private approachStuck = 0;
     private lastNpcX = -1;
     private lastNpcZ = -1;
+    private choiceAskedAt = -1000;
+    private talkRetries = 0;
     private readonly MAX_OPTIONS = 12; // hard cap: never loop a dialog forever
 
     constructor(name: string) {
@@ -48,6 +51,9 @@ export class TalkRoutine implements Routine {
 
     step(bot: BotPlayer): 'running' | 'done' | 'aborted' {
         const p = bot.player;
+        if (this.phase !== Phase.DIALOG) {
+            clearDialogChoice(); // stale soul picks must not leak across phases
+        }
         if (this.timeoutTick === 0) {
             this.timeoutTick = World.currentTick + 1000; // ~10 min hard cap
             clearDialogFlags();
@@ -155,8 +161,17 @@ export class TalkRoutine implements Routine {
                 // the APNPC1 approach trigger fires the talk script in range.
                 const ok = p.setInteraction(Interaction.ENGINE, npc, ServerTriggerType.APNPC1);
                 if (!ok) {
-                    return 'aborted';
+                    // target transiently invalid (usually npc delayed) — retry a
+                    // while before giving up, and say so out loud
+                    this.talkRetries = (this.talkRetries ?? 0) + 1;
+                    if (this.talkRetries > 40) {
+                        // ~24s
+                        botLog.append('reflex', { kind: 'talk_aborted', npc: this.npcName, reason: 'target_invalid' });
+                        return 'aborted';
+                    }
+                    return 'running';
                 }
+                this.talkRetries = 0;
                 p.opcalled = true;
                 this.phase = Phase.DIALOG;
                 this.lastOptionTick = World.currentTick;
@@ -202,7 +217,6 @@ export class TalkRoutine implements Routine {
 
                 const dlg = currentDialog(p.resumeButtons);
                 const hasOptions = dlg !== null && dlg.options.length > 0;
-
                 if (!hasOptions) {
                     // No resume-button options → this is a "click here to continue"
                     // page. The client advances these with RESUME_PAUSEBUTTON (opcode 72):
@@ -226,7 +240,36 @@ export class TalkRoutine implements Routine {
                     return 'running';
                 }
 
-                const option = dlg.options[0]; // deterministic: first option
+                // Strategist dialog callback: when soul routing is on, real choices go
+                // to the Hermes agent (questing unlock). Timeout falls back to the
+                // deterministic first option so dialogs never stall.
+                let option = dlg.options[0];
+                if (soulRoutingEnabled()) {
+                    const sig = this.npcName + '|' + dlg.options.map(o => o.comId).join(',');
+                    if (requestDialogChoice(sig)) {
+                        this.choiceAskedAt = World.currentTick;
+                        const lines = dlg.lines.slice(-4).join(' / ');
+                        const opts = dlg.options.map(o => `${o.comId}: ${o.text}`).join(' | ');
+                        forwardNotice(`Pepe is talking to ${this.npcName} and must choose a reply. Dialog: "${lines}". Options (reply with dialog_pick + comId): ${opts}`, { dialog_npc: this.npcName });
+                        botLog.append('action', { action: 'dialog_callback', npc: this.npcName, options: dlg.options.length });
+                    }
+                    const pick = consumeDialogChoice(sig);
+                    if (pick !== null) {
+                        const chosen = dlg.options.find(o => o.comId === pick);
+                        if (chosen) {
+                            option = chosen;
+                            botLog.append('action', { action: 'dialog_soul_pick', npc: this.npcName, comId: pick, text: chosen.text.slice(0, 60) });
+                        } else {
+                            botLog.append('action', { action: 'dialog_soul_pick_stale', npc: this.npcName, comId: pick });
+                        }
+                        clearDialogChoice();
+                    } else if (World.currentTick - this.choiceAskedAt <= 150) {
+                        return 'running'; // waiting for the soul (~90s budget)
+                    } else {
+                        clearDialogChoice();
+                        botLog.append('action', { action: 'dialog_callback_timeout', npc: this.npcName });
+                    }
+                }
                 p.lastCom = option.comId;
                 if (p.resumeButtons.includes(option.comId) && p.activeScript && (p.activeScript.execution === ScriptState.PAUSEBUTTON || p.activeScript.execution === ScriptState.COUNTDIALOG)) {
                     p.executeScript(p.activeScript, true, true);
