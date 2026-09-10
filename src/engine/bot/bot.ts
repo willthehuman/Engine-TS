@@ -5,19 +5,23 @@
 // Everything else lives in src/engine/bot/.
 
 import { NetworkPlayer } from '#/engine/entity/NetworkPlayer.js';
-import { BotPlayer } from './BotPlayer.js';
+import { BotPlayer, DEFAULT_PERSONA } from './BotPlayer.js';
 import { Brain } from './brain.js';
 import { Percept } from './Percept.js';
 import { botLog } from './EventLog.js';
 
 export const brain = new Brain();
+export const guests: BotPlayer[] = [];
 
 /** World-cycle hook: one deterministic brain tick. */
 export function botTick(): void {
-    if (brain.bots.length === 0) {
+    if (brain.bots.length === 0 && guests.length === 0) {
         return;
     }
     brain.tick();
+    for (const g of guests) {
+        g.tick(); // keepalive + no routines = pure connection refresh
+    }
 }
 
 let started = false;
@@ -32,6 +36,24 @@ export async function startBot(): Promise<void> {
     const bot = await BotPlayer.attach();
     brain.register(bot);
     console.log(`[pepe] attached: ${bot.player.username} at ${bot.player.x},${bot.player.z},${bot.player.level}`);
+
+    if (process.env.PEPE_TEST_GUEST === '1') {
+        const guestPersona = { ...DEFAULT_PERSONA, name: 'testguy', hearDistance: 14, wanderRadius: 0 };
+        const guest = await BotPlayer.attach(guestPersona);
+        guests.push(guest); // ticked for keepalive only, no brain
+        // guest is NOT registered with the brain: no wander, no decisions, pure test puppet
+        console.log(`[pepe] test guest attached: ${guest.player.username} at ${guest.player.x},${guest.player.z}`);
+        const script = [
+            { after: 12_000, text: 'hi pepe' },
+            { after: 45_000, text: 'pepe what do you think of lumbridge?' }
+        ];
+        for (const line of script) {
+            setTimeout(() => {
+                const res = guest.say(line.text);
+                console.log(`[pepe] guest says "${line.text}" -> ${JSON.stringify(res)}`);
+            }, line.after);
+        }
+    }
 }
 
 /** Chat tap — called from World.processClientsIn() once per player chat message. */

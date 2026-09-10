@@ -6,6 +6,7 @@ import World from '#/engine/World.js';
 import { botLog } from './EventLog.js';
 import { Percept } from './Percept.js';
 import { WanderRoutine } from './routines.js';
+import { maybeDecide } from './decide.js';
 import type { BotPlayer } from './BotPlayer.js';
 
 export class Brain {
@@ -45,6 +46,9 @@ export class Brain {
         if (bot.brainState === 'idle' && !bot.currentRoutineName) {
             bot.enqueue(new WanderRoutine());
         }
+
+        // decision layer: fire an LLM decision if fresh interesting chat exists
+        maybeDecide(bot);
     }
 
     /** Perceived chat tail for the decision layer (honesty-filtered). */
