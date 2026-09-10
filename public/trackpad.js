@@ -103,14 +103,7 @@ if (typeof document !== 'undefined') {
         dispatch('mouseup', b, 0);
     }
 
-    zone.addEventListener('pointerdown', e => {
-        e.preventDefault();
-        if (zone.setPointerCapture) zone.setPointerCapture(e.pointerId);
-        active.set(e.pointerId, { x0: e.clientX, y0: e.clientY, x: e.clientX, y: e.clientY, t0: e.timeStamp });
-        maxPointers = Math.max(maxPointers, active.size);
-    });
-
-    zone.addEventListener('pointermove', e => {
+    function moveFrom(e) {
         const t = active.get(e.pointerId);
         if (!t) return;
         e.preventDefault();
@@ -123,7 +116,18 @@ if (typeof document !== 'undefined') {
         vy = c.y;
         positionCursor();
         dispatch('pointermove', 0, heldButton === 2 ? 2 : heldButton === 0 ? 1 : 0);
+    }
+
+    zone.addEventListener('pointerdown', e => {
+        e.preventDefault();
+        if (zone.setPointerCapture) {
+            try { zone.setPointerCapture(e.pointerId); } catch { /* synthetic pointer id */ }
+        }
+        active.set(e.pointerId, { x0: e.clientX, y0: e.clientY, x: e.clientX, y: e.clientY, t0: e.timeStamp });
+        maxPointers = Math.max(maxPointers, active.size);
     });
+
+    zone.addEventListener('pointermove', moveFrom);
 
     function endPointer(e, cancelled) {
         const t = active.get(e.pointerId);
@@ -145,10 +149,15 @@ if (typeof document !== 'undefined') {
         el.addEventListener('pointerdown', e => {
             e.preventDefault();
             e.stopPropagation();
+            active.set(e.pointerId, { x0: e.clientX, y0: e.clientY, x: e.clientX, y: e.clientY, t0: e.timeStamp });
             el.classList.add('active');
             press(button);
         });
-        const up = () => {
+        // a finger held on the button drives the cursor: hold + move = drag
+        el.addEventListener('pointermove', moveFrom);
+        const up = e => {
+            if (e.pointerId !== undefined) active.delete(e.pointerId);
+            if (active.size === 0) maxPointers = 0;
             el.classList.remove('active');
             release();
         };
