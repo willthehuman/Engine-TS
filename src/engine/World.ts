@@ -41,6 +41,7 @@ import { HuntModeType } from '#/engine/entity/hunt/HuntModeType.js';
 import Loc from '#/engine/entity/Loc.js';
 import LocObjEvent from '#/engine/entity/LocObjEvent.js';
 import { isClientConnected, NetworkPlayer } from '#/engine/entity/NetworkPlayer.js';
+import { botTick, tapChat } from '#/engine/bot/bot.js';
 import Npc from '#/engine/entity/Npc.js';
 import { NpcEventRequest, NpcEventType } from '#/engine/entity/NpcEventRequest.js';
 import { NpcStat } from '#/engine/entity/NpcStat.js';
@@ -503,6 +504,9 @@ class World {
             this.currentTick++;
             this.nextTick += this.tickRate;
 
+            // pepe bot: deterministic brain tick (reflexes + routines)
+            botTick();
+
             // ----
 
             setTimeout(this.cycle.bind(this), Math.max(0, this.tickRate - (Date.now() - start) - drift));
@@ -631,6 +635,8 @@ class World {
 
                 if (player.logMessage !== null) {
                     this.logPublicChat(player, player.logMessage);
+                    // pepe bot chat tap (perception-honesty filtered inside)
+                    tapChat(player, player.logMessage);
                 }
             } catch (err) {
                 console.error(err);

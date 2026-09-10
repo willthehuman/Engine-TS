@@ -41,6 +41,15 @@ tcpServer.start();
 await startWeb();
 await startManagementWeb();
 
+// pepe bot: opt-in via PEPE_BOT=1
+if (process.env.PEPE_BOT === '1') {
+    const { startBot } = await import('#/engine/bot/bot.js');
+    const { startBotHttp } = await import('#/engine/bot/bot-http.js');
+    await startBot();
+    await startBotHttp();
+    console.log('[pepe] bot system started');
+}
+
 register.setDefaultLabels({ nodeId: Environment.node.id });
 collectDefaultMetrics({ register });
 
