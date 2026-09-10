@@ -45,7 +45,7 @@ test('slow sub-pixel motion accumulates instead of flooring away', () => {
     for (let i = 0; i < 10; i++) {
         x = clampCursor(x + 0.4, 0).x;
     }
-    assert.equal(x, 386.5);
+    assert.ok(Math.abs(x - 386.5) < 1e-9, `expected ~386.5, got ${x}`);
 });
 
 test('cursorGain: ~1 at slow speeds, saturates at ACCEL_MAX', () => {
