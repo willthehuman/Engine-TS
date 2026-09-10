@@ -113,6 +113,55 @@
         #mobilekeyboard-container {
             display: none;
         }
+
+        #trackpad-container {
+            display: none;
+        }
+
+        #trackpad-zone {
+            display: none;
+            margin: 6px auto 0 auto;
+            background: #0a0a0a;
+            background-image: radial-gradient(circle, #1c1c1c 1px, transparent 1px);
+            background-size: 22px 22px;
+            border: 1px solid #333;
+            border-radius: 6px;
+            height: clamp(120px, 22vh, 220px);
+            touch-action: none;
+            overscroll-behavior: contain;
+            user-select: none;
+            -webkit-user-select: none;
+        }
+
+        #trackpad-zone .trackpad-btn {
+            flex: 1;
+            margin: 8px;
+            font-family: Arial, Helvetica, sans-serif;
+            font-size: 18px;
+            color: #04A800;
+            background: #111;
+            border: 1px solid #333;
+            border-radius: 6px;
+            touch-action: none;
+        }
+
+        #trackpad-zone .trackpad-btn.active {
+            background: #04A800;
+            color: black;
+        }
+
+        #trackpad-cursor {
+            position: fixed;
+            width: 17px;
+            height: 17px;
+            margin: -8px 0 0 -8px;
+            border: 2px solid #ffff00;
+            border-radius: 50%;
+            box-shadow: 0 0 0 1px black;
+            pointer-events: none;
+            z-index: 10;
+            display: none;
+        }
     </style>
 
     <script>
@@ -166,7 +215,11 @@
             document.getElementById('hide-message').style.display = '';
 
             let size = localStorage.getItem('canvasSize');
-            if (size === 'auto') { document.getElementById('canvas').style.height = '93vh'; }
+            if (size === 'auto') {
+                const tz = document.getElementById('trackpad-zone');
+                const extra = (tz && tz.offsetHeight > 0) ? (tz.offsetHeight + 6) + 'px' : '0px';
+                document.getElementById('canvas').style.height = 'calc(93vh - ' + extra + ')';
+            }
 
             countDown = 0;
             hideMessage();
@@ -237,6 +290,13 @@
                     // Unset choice = hybrid
                     keyboardChoiceElement.value = 'hybrid';
                 }
+
+                const trackpadContainerElement = document.getElementById('trackpad-container');
+                const trackpadChoiceElement = document.getElementById('trackpad');
+                trackpadContainerElement.style.display = 'inline-block';
+                let trackpadMode = localStorage.getItem('trackpadMode');
+                if (trackpadMode !== 'tap' && trackpadMode !== 'buttons') { trackpadMode = 'off'; }
+                trackpadChoiceElement.value = trackpadMode;
             } else {
                 let size = localStorage.getItem('canvasSize');
                 if (size) { setSize(size); }
@@ -250,6 +310,12 @@
             const target = document.getElementById('mobilekeyboard').value;
             localStorage.setItem('mobileKeyboardMode', target);
             alert('Please reload the page to apply the changes.');
+        }
+
+        function setTrackpadChoice() {
+            const mode = document.getElementById('trackpad').value;
+            localStorage.setItem('trackpadMode', mode);
+            if (window.__trackpad) { window.__trackpad.applyMode(mode); }
         }
 
         function setSize(size) {
@@ -280,6 +346,11 @@
                         reservedHeight = Math.max(window.innerHeight * 0.05, 32 + 8); // Increased buffer
                     } else {
                         reservedHeight = 0;
+                    }
+
+                    const trackpadZone = document.getElementById('trackpad-zone');
+                    if (trackpadZone && trackpadZone.offsetHeight > 0) {
+                        reservedHeight += trackpadZone.offsetHeight + 6;
                     }
 
                     const availableHeight = window.innerHeight - reservedHeight;
@@ -338,6 +409,10 @@
             <canvas id="canvas" width="765" height="503">
                 Your browser is not capable of running our web client.
             </canvas>
+            <div id="trackpad-zone">
+                <button class="trackpad-btn" id="trackpad-lmb" type="button">LMB hold + drag</button>
+                <button class="trackpad-btn" id="trackpad-rmb" type="button">RMB</button>
+            </div>
         </div>
 
         <div class="centered" id="controls">
@@ -361,6 +436,15 @@
                         <option value="hybrid" id="hybrid">Hybrid keyboard</option>
                         <option value="canvas" id="canvas">Canvas keyboard</option>
                         <option value="native" id="native">Native keyboard</option>
+                    </optgroup>
+                </select> |
+            </span>
+            <span id="trackpad-container">
+                <select id="trackpad" name="trackpad" onchange="setTrackpadChoice();">
+                    <optgroup>
+                        <option value="off" id="off">Direct touch</option>
+                        <option value="tap" id="tap">Trackpad (tap / 2-finger tap)</option>
+                        <option value="buttons" id="buttons">Trackpad (+ L/R buttons)</option>
                     </optgroup>
                 </select> |
             </span>
@@ -399,6 +483,8 @@
 
         loadSettings();
     </script>
+
+    <script type="module" src="/trackpad.js"></script>
 </body>
 
 </html>
