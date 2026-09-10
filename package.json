@@ -73,5 +73,10 @@
   },
   "peerDependencies": {
     "typescript": "^5"
+  },
+  "allowScripts": {
+    "@prisma/engines@6.19.3": true,
+    "esbuild@0.28.0": true,
+    "prisma@6.19.3": true
   }
 }
