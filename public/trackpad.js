@@ -124,6 +124,8 @@ if (typeof document !== 'undefined') {
         lastMoveTime = e.timeStamp;
         const rawDx = e.clientX - t.x;
         const rawDy = e.clientY - t.y;
+        t.x = e.clientX;
+        t.y = e.clientY;
         const gain = cursorGain(Math.hypot(rawDx, rawDy) / dt) * SENSITIVITY;
         const c = clampCursor(vx + rawDx * gain, vy + rawDy * gain);
         vx = c.x;
