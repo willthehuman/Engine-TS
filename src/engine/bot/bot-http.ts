@@ -126,6 +126,10 @@ export async function startBotHttp(): Promise<void> {
                 const res = bot.moveTo(Number(args.x), Number(args.z));
                 return { action, ...res };
             }
+            case 'pm': {
+                const res = bot.sendPm(String(args.to ?? ''), String(args.text ?? ''));
+                return { action, ...res };
+            }
             case 'stop': {
                 return { action, ...bot.stop() };
             }

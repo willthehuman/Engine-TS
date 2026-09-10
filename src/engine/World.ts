@@ -41,7 +41,7 @@ import { HuntModeType } from '#/engine/entity/hunt/HuntModeType.js';
 import Loc from '#/engine/entity/Loc.js';
 import LocObjEvent from '#/engine/entity/LocObjEvent.js';
 import { isClientConnected, NetworkPlayer } from '#/engine/entity/NetworkPlayer.js';
-import { botTick, tapChat } from '#/engine/bot/bot.js';
+import { botTick, tapChat, tapPrivateMessage } from '#/engine/bot/bot.js';
 import Npc from '#/engine/entity/Npc.js';
 import { NpcEventRequest, NpcEventType } from '#/engine/entity/NpcEventRequest.js';
 import { NpcStat } from '#/engine/entity/NpcStat.js';
@@ -1652,6 +1652,8 @@ class World {
 
     sendPrivateMessage(player: Player, targetUsername37: bigint, message: string): void {
         //printDebug(`[World] sendPrivateMessage => player: ${player.username}, target: ${targetUsername37} (${fromBase37(targetUsername37)}), message: '${message}'`);
+        // pepe bot: PM tap (soul routing — forwards PMs TO pepe to the Hermes agent)
+        tapPrivateMessage(player, targetUsername37, message);
 
         this.friendThread.postMessage({
             type: 'private_message',

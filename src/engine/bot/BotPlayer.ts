@@ -188,6 +188,37 @@ export class BotPlayer {
         return { ok: true };
     }
 
+    sendPm(to: string, text: string): { ok: boolean; reason?: string } {
+        const p = this.player;
+        const name = (to ?? '').toString().toLowerCase().trim();
+        const clean = (text ?? '').toString().slice(0, 100);
+        if (!name.length || !clean.length) {
+            return { ok: false, reason: 'empty' };
+        }
+        if (name === p.username) {
+            return { ok: false, reason: 'self' };
+        }
+        const target = World.getPlayerByUsername(name);
+        if (!target) {
+            return { ok: false, reason: 'player_offline' };
+        }
+        if (p.muted_until !== null && p.muted_until > new Date()) {
+            return { ok: false, reason: 'muted' };
+        }
+        if (World.currentTick - this.lastSayTick < BotPlayer.SAY_COOLDOWN_TICKS) {
+            return { ok: false, reason: 'rate_limited' };
+        }
+        if (!this.spendAction()) {
+            return { ok: false, reason: 'action_budget' };
+        }
+
+        // same path a real client uses (MessagePrivateHandler → World.sendPrivateMessage)
+        World.sendPrivateMessage(p, target.username37, clean);
+        this.lastSayTick = World.currentTick;
+        botLog.append('action', { action: 'pm', to: target.username, text: clean });
+        return { ok: true };
+    }
+
     moveTo(x: number, z: number): { ok: boolean; reason?: string } {
         const p = this.player;
         if (typeof x !== 'number' || typeof z !== 'number' || !Number.isInteger(x) || !Number.isInteger(z)) {

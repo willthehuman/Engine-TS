@@ -5,11 +5,14 @@
 // Everything else lives in src/engine/bot/.
 
 import { NetworkPlayer } from '#/engine/entity/NetworkPlayer.js';
+import { fromBase37 } from '#/util/JString.js';
 import { BotPlayer, DEFAULT_PERSONA } from './BotPlayer.js';
 import { Brain } from './brain.js';
 import { Percept } from './Percept.js';
 import { captureDialogText } from './dialog.js';
 import { botLog } from './EventLog.js';
+import { forwardIngameEvent, soulRoutingEnabled } from './webhook.js';
+import { consumeUpTo, isInteresting } from './decide.js';
 
 export const brain = new Brain();
 export const guests: BotPlayer[] = [];
@@ -51,13 +54,21 @@ export async function startBot(): Promise<void> {
         // guest is NOT registered with the brain: no wander, no decisions, pure test puppet
         console.log(`[pepe] test guest attached: ${guest.player.username} at ${guest.player.x},${guest.player.z}`);
         const script = [
-            { after: 12_000, text: 'hi pepe' },
-            { after: 45_000, text: 'pepe what do you think of lumbridge?' }
+            { after: 6_000, kind: 'teleport', text: '' },
+            { after: 38_000, kind: 'teleport', text: '' },
+            { after: 41_000, kind: 'say', text: 'pepe you around? its testguy' },
+            { after: 95_000, kind: 'pm', text: 'pepe where are you? want to hang out?' }
         ];
         for (const line of script) {
             setTimeout(() => {
-                const res = guest.say(line.text);
-                console.log(`[pepe] guest says "${line.text}" -> ${JSON.stringify(res)}`);
+                if (line.kind === 'teleport') {
+                    const pp = brain.bots[0].player;
+                    guest.player.teleport(pp.x + 2, pp.z, pp.level);
+                    console.log(`[pepe] guest teleported next to pepe at ${pp.x},${pp.z}`);
+                    return;
+                }
+                const res = line.kind === 'pm' ? guest.sendPm('pepe', line.text) : guest.say(line.text);
+                console.log(`[pepe] guest ${line.kind} "${line.text}" -> ${JSON.stringify(res)}`);
             }, line.after);
         }
     }
@@ -78,7 +89,34 @@ export function tapChat(sender: NetworkPlayer | import('#/engine/entity/Player.j
         if (!Percept.canHear(bot, sender)) {
             continue;
         }
-        botLog.append('chat', { from: sender.username, text, dist: tileDistance(bot.player, sender) });
+        const dist = tileDistance(bot.player, sender);
+        const ev = botLog.append('chat', { from: sender.username, text, dist });
+        // soul routing: interesting public chat goes to Hermes (the agent replies
+        // in-game itself); consume it so the local brain does not double-answer.
+        if (soulRoutingEnabled() && isInteresting(text)) {
+            forwardIngameEvent('chat', sender.username, text, { dist: Math.round(dist) });
+            consumeUpTo(ev.seq);
+        }
+    }
+}
+
+/** PM tap — called from World.sendPrivateMessage() for EVERY private message. */
+export function tapPrivateMessage(sender: import('#/engine/entity/Player.js').default, targetUsername37: bigint, text: string): void {
+    if (brain.bots.length === 0 || !soulRoutingEnabled()) {
+        return;
+    }
+    const targetName = fromBase37(targetUsername37);
+    for (const bot of brain.bots) {
+        if (targetName !== bot.player.username) {
+            continue; // not for pepe
+        }
+        if (sender.username === bot.player.username) {
+            continue; // pepe's own outgoing PMs
+        }
+        // PMs are direct — always perceivable, always forwarded to the soul.
+        const ev = botLog.append('chat', { from: sender.username, text, pm: true, dist: 0 });
+        forwardIngameEvent('pm', sender.username, text);
+        consumeUpTo(ev.seq);
     }
 }
 

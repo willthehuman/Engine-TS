@@ -34,6 +34,19 @@ let lastDecisionAt = 0;
 let inFlight = false;
 let lastConsumedSeq = 0;
 
+/** Shared interest filter (used by shouldDecide AND the soul router in bot.ts). */
+export function isInteresting(text: string): boolean {
+    const t = String(text ?? '').toLowerCase();
+    return /pepe/.test(t) || /\?$/.test(t) || /^(hi|hello|hey|yo|sup|salut|bonjour)\b/i.test(t);
+}
+
+/** Advance the local brain's cursor (called by the soul router after forwarding). */
+export function consumeUpTo(seq: number): void {
+    if (seq > lastConsumedSeq) {
+        lastConsumedSeq = seq;
+    }
+}
+
 export function shouldDecide(_bot: BotPlayer): { reason: string; events: import('./EventLog.js').BotEvent[] } | null {
     if (inFlight) {
         return null;
@@ -47,10 +60,7 @@ export function shouldDecide(_bot: BotPlayer): { reason: string; events: import(
         return null;
     }
     // interesting = addressed to pepe (name-mention or question) or direct greeting
-    const interesting = fresh.some(e => {
-        const t = String((e.data as { text: string }).text ?? '').toLowerCase();
-        return /pepe/.test(t) || /\?$/.test(t) || /^(hi|hello|hey|yo|sup|salut|bonjour)\b/i.test(t);
-    });
+    const interesting = fresh.some(e => isInteresting(String((e.data as { text: string }).text ?? '')));
     if (!interesting) {
         // consume silently — ambient chat is not worth tokens
         lastConsumedSeq = tail[tail.length - 1].seq;
