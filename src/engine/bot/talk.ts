@@ -209,6 +209,12 @@ export class TalkRoutine implements Routine {
                         this.optionsPicked++;
                         this.lastOptionTick = World.currentTick;
                         botLog.append('action', { action: 'dialog_page' });
+                    } else if (!p.activeScript && (this.sawDialog || this.optionsPicked > 0)) {
+                        // script is finished but an interface lingers (e.g. a shop
+                        // viewport opened by the dialog) — close it and move on
+                        bot.saveNow();
+                        p.closeModal();
+                        return 'done';
                     } else if (World.currentTick - this.lastOptionTick > 50 && this.optionsPicked === 0) {
                         // nothing resumable for 30s — bail out
                         p.closeModal();
