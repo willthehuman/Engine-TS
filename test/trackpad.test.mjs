@@ -1,7 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 
-import { clampCursor, cursorToCss, classifyTap, SENSITIVITY } from '../public/trackpad.js';
+import { clampCursor, cursorToCss, classifyTap, cursorGain, ACCEL_MAX, SENSITIVITY } from '../public/trackpad.js';
 
 test('clampCursor clamps into 765x503 and floors floats', () => {
     assert.deepEqual(clampCursor(-10, 700), { x: 0, y: 503 });
@@ -37,4 +37,12 @@ test('sensitivity is applied before clamping (cursor pins at edge)', () => {
 test('clampCursor center is reachable and symmetric', () => {
     const c = clampCursor(765 / 2, 503 / 2);
     assert.deepEqual(c, { x: 382, y: 251 });
+});
+
+test('cursorGain: ~1 at slow speeds, saturates at ACCEL_MAX', () => {
+    assert.ok(Math.abs(cursorGain(0.1) - 1) < 0.05, 'slow movement gets ~no boost');
+    assert.ok(cursorGain(0) >= 1 && cursorGain(0.1) >= 1);
+    assert.ok(cursorGain(0.5) < cursorGain(1.5), 'increases with speed');
+    assert.equal(cursorGain(1.5), 1 + (ACCEL_MAX - 1), 'curve tops out at 1.5 px/ms');
+    assert.equal(cursorGain(100), 1 + (ACCEL_MAX - 1), 'fast flick saturates');
 });

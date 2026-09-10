@@ -9,6 +9,15 @@
 export const CLIENT_WIDTH = 765;
 export const CLIENT_HEIGHT = 503;
 export const SENSITIVITY = 1.6;
+export const ACCEL_MAX = 2.5;
+
+// MacBook-style pointer acceleration: slow/precise movement gets ~no boost,
+// fast flicks scale up, saturating at ACCEL_MAX. speed is px/ms.
+export function cursorGain(speedPxPerMs) {
+    if (speedPxPerMs <= 0.1) return 1;
+    const t = Math.min(1, (speedPxPerMs - 0.1) / 1.4);
+    return 1 + (ACCEL_MAX - 1) * t;
+}
 
 export function clampCursor(x, y) {
     return {
@@ -105,15 +114,18 @@ if (typeof document !== 'undefined') {
         dispatch('mouseup', b, 0);
     }
 
+    let lastMoveTime = 0;
+
     function moveFrom(e) {
         const t = active.get(e.pointerId);
         if (!t) return;
         e.preventDefault();
-        const dx = (e.clientX - t.x) * SENSITIVITY;
-        const dy = (e.clientY - t.y) * SENSITIVITY;
-        t.x = e.clientX;
-        t.y = e.clientY;
-        const c = clampCursor(vx + dx, vy + dy);
+        const dt = Math.min(100, Math.max(1, (e.timeStamp - lastMoveTime) || 16));
+        lastMoveTime = e.timeStamp;
+        const rawDx = e.clientX - t.x;
+        const rawDy = e.clientY - t.y;
+        const gain = cursorGain(Math.hypot(rawDx, rawDy) / dt) * SENSITIVITY;
+        const c = clampCursor(vx + rawDx * gain, vy + rawDy * gain);
         vx = c.x;
         vy = c.y;
         positionCursor();
@@ -125,6 +137,7 @@ if (typeof document !== 'undefined') {
         if (surface.setPointerCapture) {
             try { surface.setPointerCapture(e.pointerId); } catch { /* synthetic pointer id */ }
         }
+        lastMoveTime = e.timeStamp;
         active.set(e.pointerId, { x0: e.clientX, y0: e.clientY, x: e.clientX, y: e.clientY, t0: e.timeStamp });
         maxPointers = Math.max(maxPointers, active.size);
     });
@@ -146,6 +159,12 @@ if (typeof document !== 'undefined') {
     }
     surface.addEventListener('pointerup', e => endPointer(e, false));
     surface.addEventListener('pointercancel', e => endPointer(e, true));
+
+    // iOS Safari: text-selection is a touch gesture, not a pointer one - stop it dead
+    // inside the trackpad (non-passive so preventDefault is honored).
+    for (const type of ['touchstart', 'touchmove']) {
+        zone.addEventListener(type, e => e.preventDefault(), { passive: false });
+    }
 
     function wireButton(el, button) {
         el.addEventListener('pointerdown', e => {
