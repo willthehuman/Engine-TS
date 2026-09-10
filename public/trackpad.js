@@ -21,8 +21,8 @@ export function cursorGain(speedPxPerMs) {
 
 export function clampCursor(x, y) {
     return {
-        x: Math.max(0, Math.min(CLIENT_WIDTH, x | 0)),
-        y: Math.max(0, Math.min(CLIENT_HEIGHT, y | 0))
+        x: Math.max(0, Math.min(CLIENT_WIDTH, x)),
+        y: Math.max(0, Math.min(CLIENT_HEIGHT, y))
     };
 }
 
@@ -127,6 +127,7 @@ if (typeof document !== 'undefined') {
         t.x = e.clientX;
         t.y = e.clientY;
         const gain = cursorGain(Math.hypot(rawDx, rawDy) / dt) * SENSITIVITY;
+        // fractional position: slow sub-pixel motions accumulate instead of flooring to zero
         const c = clampCursor(vx + rawDx * gain, vy + rawDy * gain);
         vx = c.x;
         vy = c.y;

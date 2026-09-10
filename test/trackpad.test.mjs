@@ -3,10 +3,10 @@ import assert from 'node:assert/strict';
 
 import { clampCursor, cursorToCss, classifyTap, cursorGain, ACCEL_MAX, SENSITIVITY } from '../public/trackpad.js';
 
-test('clampCursor clamps into 765x503 and floors floats', () => {
+test('clampCursor clamps into 765x503 and preserves fractional positions', () => {
     assert.deepEqual(clampCursor(-10, 700), { x: 0, y: 503 });
     assert.deepEqual(clampCursor(800, -5), { x: 765, y: 0 });
-    assert.deepEqual(clampCursor(100.9, 200.9), { x: 100, y: 200 });
+    assert.deepEqual(clampCursor(100.9, 200.9), { x: 100.9, y: 200.9 });
 });
 
 test('cursorToCss maps client coords onto the canvas rect exactly', () => {
@@ -34,9 +34,18 @@ test('sensitivity is applied before clamping (cursor pins at edge)', () => {
     assert.equal(x, 765);
 });
 
-test('clampCursor center is reachable and symmetric', () => {
+test('clampCursor center is reachable', () => {
     const c = clampCursor(765 / 2, 503 / 2);
-    assert.deepEqual(c, { x: 382, y: 251 });
+    assert.deepEqual(c, { x: 382.5, y: 251.5 });
+});
+
+test('slow sub-pixel motion accumulates instead of flooring away', () => {
+    // 10 moves of 0.4 client-px at gain 1: old flooring lost ALL of it
+    let x = 382.5;
+    for (let i = 0; i < 10; i++) {
+        x = clampCursor(x + 0.4, 0).x;
+    }
+    assert.equal(x, 386.5);
 });
 
 test('cursorGain: ~1 at slow speeds, saturates at ACCEL_MAX', () => {
