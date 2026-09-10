@@ -201,8 +201,6 @@ if (typeof document !== 'undefined') {
 
     const forced = new URLSearchParams(location.search).get('trackpad');
     applyMode(forced || localStorage.getItem('trackpadMode') || 'off');
-    // the toggle label lives in the page script; refresh it now that mode is applied
-    if (typeof window.updateTrackpadToggle === 'function') { window.updateTrackpadToggle(); }
 
     window.__trackpad = { applyMode: applyMode, state: () => ({ mode: mode, vx: vx, vy: vy }) };
 }

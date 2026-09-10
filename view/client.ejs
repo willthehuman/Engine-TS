@@ -317,8 +317,6 @@
 
                 let controls = localStorage.getItem('hideControls');
                 if (controls === 'true') { hideControls(); }
-
-                updateTrackpadToggle();
             }
         }
 
@@ -328,36 +326,12 @@
             alert('Please reload the page to apply the changes.');
         }
 
-        function updateTrackpadToggle() {
-            let mode = 'off';
-            if (window.__trackpad) {
-                mode = window.__trackpad.state().mode;
-            } else {
-                const m = localStorage.getItem('trackpadMode');
-                mode = (m === 'tap' || m === 'buttons' || m === 'inverted') ? m : 'off';
-            }
-            document.getElementById('trackpad-toggle').textContent = mode === 'off' ? 'Trackpad: Off' : 'Trackpad: On';
-        }
-
         function setTrackpadMode(mode) {
             const valid = (mode === 'tap' || mode === 'buttons' || mode === 'inverted');
             if (!valid) { mode = 'off'; }
             localStorage.setItem('trackpadMode', mode);
-            if (valid) { localStorage.setItem('trackpadLastMode', mode); }
             document.getElementById('trackpad').value = mode;
             if (window.__trackpad) { window.__trackpad.applyMode(mode); }
-            updateTrackpadToggle();
-        }
-
-        function toggleTrackpad() {
-            const cur = window.__trackpad ? window.__trackpad.state().mode : localStorage.getItem('trackpadMode');
-            const on = cur === 'tap' || cur === 'buttons' || cur === 'inverted';
-            if (on) {
-                setTrackpadMode('off');
-            } else {
-                const last = localStorage.getItem('trackpadLastMode');
-                setTrackpadMode(last === 'tap' || last === 'buttons' || last === 'inverted' ? last : 'buttons');
-            }
         }
 
         function setTrackpadChoice() {
@@ -500,7 +474,6 @@
             </span>
             <a class="green" href="#" id="fullscreen" onclick="toggleFullscreen();">Go Fullscreen</a> |
             <a class="green" href="#" id="screenshot" onclick="saveScreenshot();">Take screenshot</a> |
-            <a class="green" href="#" id="trackpad-toggle" onclick="toggleTrackpad();">Trackpad: Off</a> |
             <a class="green" href="#" id="hide" onclick="hideControls();">Hide controls</a>
         </div>
         <div id="hide-message" style="display: none;">
