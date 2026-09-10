@@ -76,6 +76,16 @@ await fastify.register(FastifyWebsocket, {
     }
 });
 
+const clientPage = await Promise.all(
+    [0, 1].map(async lowmem => {
+        return await fastify.view('client.ejs', {
+            nodeid: Environment.node.id,
+            members: Environment.node.members,
+            lowmem
+        });
+    })
+);
+
 // general routes
 
 fastify.route({
@@ -147,11 +157,7 @@ fastify.get<{ Querystring: { plugin?: string; lowmem?: string } }>('/rs2.cgi', a
             lowmem
         });
     } else {
-        return reply.viewAsync('client.ejs', {
-            nodeid: Environment.node.id,
-            members: Environment.node.members,
-            lowmem
-        });
+        return reply.type('text/html').send(clientPage[lowmem === 1 ? 1 : 0]);
     }
 });
 
