@@ -54,6 +54,12 @@ export default class ZoneMap {
         return this.zones.size;
     }
 
+    *allZones(): IterableIterator<Zone> {
+        for (const zone of this.zones.values()) {
+            yield zone;
+        }
+    }
+
     locCount(): number {
         let total: number = 0;
         for (const zone of this.zones.values()) {

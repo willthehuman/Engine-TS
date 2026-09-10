@@ -54,10 +54,12 @@ export async function startBot(): Promise<void> {
         // guest is NOT registered with the brain: no wander, no decisions, pure test puppet
         console.log(`[pepe] test guest attached: ${guest.player.username} at ${guest.player.x},${guest.player.z}`);
         const script = [
-            { after: 6_000, kind: 'teleport', text: '' },
-            { after: 38_000, kind: 'teleport', text: '' },
-            { after: 41_000, kind: 'say', text: 'pepe you around? its testguy' },
-            { after: 95_000, kind: 'pm', text: 'pepe where are you? want to hang out?' }
+            { after: 6_000, kind: 'teleport_draynor', text: '' },
+            { after: 20_000, kind: 'pm', text: 'pepe come with me!' },
+            { after: 110_000, kind: 'pm', text: 'im at draynor village, come here' },
+            { after: 260_000, kind: 'pm', text: 'hey pepe, now follow me around!' },
+            { after: 280_000, kind: 'walk_away', text: '' },
+            { after: 300_000, kind: 'walk_away2', text: '' }
         ];
         for (const line of script) {
             setTimeout(() => {
@@ -65,6 +67,23 @@ export async function startBot(): Promise<void> {
                     const pp = brain.bots[0].player;
                     guest.player.teleport(pp.x + 2, pp.z, pp.level);
                     console.log(`[pepe] guest teleported next to pepe at ${pp.x},${pp.z}`);
+                    return;
+                }
+                if (line.kind === 'teleport_draynor') {
+                    guest.player.teleport(3092, 3245, 0);
+                    console.log('[pepe] guest teleported to DRAYNOR (3092,3245)');
+                    return;
+                }
+                if (line.kind === 'walk_away') {
+                    const g = guest.player;
+                    const res = guest.walkSegment(g.x - 12, g.z - 6);
+                    console.log(`[pepe] guest walks away -> ${JSON.stringify(res)}`);
+                    return;
+                }
+                if (line.kind === 'walk_away2') {
+                    const g = guest.player;
+                    const res = guest.walkSegment(g.x - 10, g.z + 4);
+                    console.log(`[pepe] guest walks away 2 -> ${JSON.stringify(res)}`);
                     return;
                 }
                 const res = line.kind === 'pm' ? guest.sendPm('pepe', line.text) : guest.say(line.text);

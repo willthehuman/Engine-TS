@@ -15,7 +15,7 @@ import WordPack from '#/wordenc/WordPack.js';
 import { findPath } from '#/engine/GameMap.js';
 import { PlayerInfoProt } from '#/network/rsbuf/index.js';
 import { botLog } from './EventLog.js';
-import type { Routine } from './routines.js';
+import { FollowRoutine, type Routine } from './routines.js';
 
 export interface Persona {
     name: string;
@@ -219,14 +219,42 @@ export class BotPlayer {
         return { ok: true };
     }
 
+    followPlayer(name: string): { ok: boolean; reason?: string } {
+        const p = this.player;
+        const nm = (name ?? '').toString().toLowerCase().trim();
+        if (!nm.length) {
+            return { ok: false, reason: 'empty' };
+        }
+        const target = World.getPlayerByUsername(nm);
+        if (!target || target.username === p.username) {
+            return { ok: false, reason: 'player_offline' };
+        }
+        // perception honesty: follow only a player Pepe can see
+        if (target.level !== p.level) {
+            return { ok: false, reason: 'cant_see' };
+        }
+        const dx = Math.abs(target.x - p.x);
+        const dz = Math.abs(target.z - p.z);
+        if (Math.max(dx, dz) > 16) {
+            return { ok: false, reason: 'cant_see' };
+        }
+        if (!this.spendAction()) {
+            return { ok: false, reason: 'action_budget' };
+        }
+        this.clearRoutines();
+        this.enqueue(new FollowRoutine(target.username));
+        botLog.append('action', { action: 'follow', user: target.username });
+        return { ok: true };
+    }
+
     moveTo(x: number, z: number): { ok: boolean; reason?: string } {
         const p = this.player;
-        if (typeof x !== 'number' || typeof z !== 'number' || !Number.isInteger(x) || !Number.isInteger(z)) {
+        if (!this.validCoords(x, z)) {
             return { ok: false, reason: 'bad_coords' };
         }
         const dist = Math.max(Math.abs(x - p.x), Math.abs(z - p.z));
         if (dist > 104) {
-            return { ok: false, reason: 'too_far' };
+            return { ok: false, reason: 'too_far' }; // agent-facing limit; routines walk staged instead
         }
         if (World.currentTick - this.lastMoveTick < BotPlayer.MOVE_COOLDOWN_TICKS) {
             return { ok: false, reason: 'rate_limited' };
@@ -234,16 +262,47 @@ export class BotPlayer {
         if (!this.spendAction()) {
             return { ok: false, reason: 'action_budget' };
         }
-
-        const path = findPath(p.level, p.x, p.z, x, z);
-        if (!path || path.length === 0) {
+        if (!this.pathAndQueue(x, z)) {
             return { ok: false, reason: 'no_path' };
         }
-        p.queueWaypoints(path);
         this.lastMoveTick = World.currentTick;
         botLog.append('action', { action: 'move_to', x, z });
         return { ok: true };
         // arrival detection lives in the WalkRoutine that wraps moveTo
+    }
+
+    /**
+     * Internal segment walk for routines (no rate limit / action budget — the
+     * routine engine is the pacing). The rsmod A* window is ~64 tiles, so long
+     * journeys are walked in segments by WalkRoutine; each segment lands here.
+     */
+    walkSegment(x: number, z: number): { ok: boolean; reason?: string } {
+        if (!this.validCoords(x, z)) {
+            return { ok: false, reason: 'bad_coords' };
+        }
+        const p = this.player;
+        if (Math.max(Math.abs(x - p.x), Math.abs(z - p.z)) > 60) {
+            return { ok: false, reason: 'segment_too_far' };
+        }
+        if (!this.pathAndQueue(x, z)) {
+            return { ok: false, reason: 'no_path' };
+        }
+        botLog.append('action', { action: 'walk', x, z });
+        return { ok: true };
+    }
+
+    private validCoords(x: number, z: number): boolean {
+        return typeof x === 'number' && typeof z === 'number' && Number.isInteger(x) && Number.isInteger(z);
+    }
+
+    private pathAndQueue(x: number, z: number): boolean {
+        const p = this.player;
+        const path = findPath(p.level, p.x, p.z, x, z);
+        if (!path || path.length === 0) {
+            return false;
+        }
+        p.queueWaypoints(path);
+        return true;
     }
 
     stop(): { ok: boolean } {

@@ -11,6 +11,10 @@ import { currentDialog, resetDialog } from './dialog.js';
 import ScriptState from '#/engine/script/ScriptState.js';
 import World from '#/engine/World.js';
 import NpcType from '#/cache/config/NpcType.js';
+import LocType from '#/cache/config/LocType.js';
+import ObjType from '#/cache/config/ObjType.js';
+import InvType from '#/cache/config/InvType.js';
+import ParamType from '#/cache/config/ParamType.js';
 import type Player from '#/engine/entity/Player.js';
 
 const PORT = 43695;
@@ -78,6 +82,112 @@ export async function startBotHttp(): Promise<void> {
         return { tile: { x: p.x, z: p.z }, npcs: rows.slice(0, 40) };
     });
 
+    app.get('/locate', async req => {
+        const bot = getBot();
+        if (!bot) {
+            return { error: 'no bot attached' };
+        }
+        const q = String((req.query as Record<string, string>).q ?? '')
+            .trim()
+            .toLowerCase();
+        if (!q.length) {
+            return { error: 'no query' };
+        }
+        const slug = q.replace(/\s+/g, '_');
+        const limit = Math.min(Number((req.query as Record<string, string>).limit ?? 10) || 10, 30);
+        const kinds = new Set(
+            String((req.query as Record<string, string>).kinds ?? 'loc,npc,shop,obj')
+                .toLowerCase()
+                .split(',')
+                .map(s => s.trim())
+        );
+        const p = bot.player;
+        const rows: { kind: string; name: string; x: number; z: number; level: number; dist: number; detail?: string }[] = [];
+
+        const matches = (...cands: (string | null | undefined)[]): boolean =>
+            cands.some(c => {
+                if (!c) return false;
+                const lc = c.toLowerCase();
+                return lc.includes(q) || lc.includes(slug);
+            });
+
+        // ---- NPCs (all spawned, world-wide) ----
+        if (kinds.has('npc')) {
+            for (const npc of World.npcs) {
+                const nt = NpcType.get(npc.type);
+                if (!matches(nt?.name, nt?.debugname)) continue;
+                rows.push({ kind: 'npc', name: nt?.name ?? `type:${npc.type}`, x: npc.x, z: npc.z, level: npc.level, dist: Math.max(Math.abs(npc.x - p.x), Math.abs(npc.z - p.z)) });
+            }
+        }
+
+        // ---- LOCs: world-wide scan over all zones ----
+        if (kinds.has('loc')) {
+            for (const zone of World.gameMap.allZones()) {
+                for (const loc of zone.getAllLocsSafe()) {
+                    const lt = LocType.get(loc.type);
+                    if (!matches(lt?.name, lt?.debugname)) continue;
+                    rows.push({ kind: 'loc', name: lt?.name ?? `type:${loc.type}`, x: loc.x, z: loc.z, level: loc.level, dist: Math.max(Math.abs(loc.x - p.x), Math.abs(loc.z - p.z)) });
+                }
+            }
+        }
+
+        // ---- Ground item spawns ----
+        if (kinds.has('obj')) {
+            for (const zone of World.gameMap.allZones()) {
+                for (const obj of zone.getAllObjsSafe()) {
+                    const ot = ObjType.get(obj.type);
+                    if (!matches(ot?.name, ot?.debugname)) continue;
+                    rows.push({ kind: 'obj', name: ot?.name ?? `type:${obj.type}`, x: obj.x, z: obj.z, level: obj.level, dist: Math.max(Math.abs(obj.x - p.x), Math.abs(obj.z - p.z)) });
+                }
+            }
+        }
+
+        // ---- Shops: invs whose stock matches the item; owners located via owned_shop param ----
+        if (kinds.has('shop')) {
+            const ownedShopParam = ParamType.getId('owned_shop');
+            for (let invId = 0; invId < InvType.count; invId++) {
+                const inv = InvType.get(invId);
+                if (!inv?.stockobj || !inv.stockobj.length) continue;
+                let hitItem: string | null = null;
+                let hitCount = 0;
+                for (const objId of inv.stockobj) {
+                    if (!objId) continue;
+                    const ot = ObjType.get(objId);
+                    if (matches(ot?.name, ot?.debugname)) {
+                        hitItem = hitItem ?? ot?.name ?? `type:${objId}`;
+                        hitCount++;
+                    }
+                }
+                if (!hitItem) continue;
+                // find owner NPC(s) currently spawned
+                let placed = false;
+                for (const npc of World.npcs) {
+                    const nt = NpcType.get(npc.type);
+                    if (!nt?.params) continue;
+                    const raw = nt.params.get(ownedShopParam);
+                    const ownerInv = typeof raw === 'number' ? raw : typeof raw === 'string' ? InvType.getId(raw) : -1;
+                    if (ownerInv !== invId) continue;
+                    rows.push({
+                        kind: 'shop',
+                        name: nt.name ?? `type:${npc.type}`,
+                        x: npc.x,
+                        z: npc.z,
+                        level: npc.level,
+                        dist: Math.max(Math.abs(npc.x - p.x), Math.abs(npc.z - p.z)),
+                        detail: `sells ${hitItem}${hitCount > 1 ? ` (+${hitCount - 1} more match${hitCount > 2 ? 'es' : ''})` : ''} at the ${String(nt.params.get(ParamType.getId('shop_title')) ?? inv.debugname ?? 'shop')}`
+                    });
+                    placed = true;
+                }
+                if (!placed && matches(inv.debugname)) {
+                    rows.push({ kind: 'shop', name: inv.debugname ?? `inv:${invId}`, x: -1, z: -1, level: p.level, dist: 9999, detail: 'shop exists but its owner is not currently spawned' });
+                }
+            }
+        }
+
+        rows.sort((a, b) => a.dist - b.dist);
+        return { query: q, pepe_at: { x: p.x, z: p.z }, total: rows.length, results: rows.slice(0, limit) };
+    });
+
     app.get('/dialog', async () => {
         const bot = getBot();
         if (!bot) {
@@ -128,6 +238,10 @@ export async function startBotHttp(): Promise<void> {
             }
             case 'pm': {
                 const res = bot.sendPm(String(args.to ?? ''), String(args.text ?? ''));
+                return { action, ...res };
+            }
+            case 'follow': {
+                const res = bot.followPlayer(String(args.user ?? ''));
                 return { action, ...res };
             }
             case 'stop': {

@@ -124,6 +124,10 @@ export default class GameMap {
         return this.zonemap.zoneCount();
     }
 
+    allZones(): IterableIterator<Zone> {
+        return this.zonemap.allZones();
+    }
+
     getTotalLocs(): number {
         return this.zonemap.locCount();
     }
