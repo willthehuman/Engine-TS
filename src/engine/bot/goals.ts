@@ -6,11 +6,13 @@
 import { botLog } from './EventLog.js';
 import { WalkRoutine, WaitRoutine, type Routine } from './routines.js';
 import { TalkRoutine } from './talk.js';
+import { CombatTrainRoutine } from './combat.js';
 
 /**
  * Accepted step forms:
  *   goto:<x>,<z>          — walk to a tile
  *   find_npc:<name>       — walk to + talk to the nearest NPC whose name matches
+ *   train:<npc>[:<kills>] — defence-train on a nearby NPC type (e.g. train:chicken:25)
  *   wait:<seconds>        — stand still
  */
 export function compileGoal(steps: string[]): Routine[] {
@@ -28,6 +30,14 @@ export function compileGoal(steps: string[]): Routine[] {
                 const name = raw.trim().slice(9).trim();
                 if (name.length > 0) {
                     queue.push(new TalkRoutine(name));
+                    continue;
+                }
+            } else if (step.startsWith('train:')) {
+                const parts = step.slice(6).split(':');
+                const name = parts[0].trim();
+                const kills = parts.length > 1 ? Number(parts[1]) : 0;
+                if (name.length > 0) {
+                    queue.push(new CombatTrainRoutine(name, Number.isFinite(kills) && kills > 0 ? Math.round(kills) : 0));
                     continue;
                 }
             } else if (step.startsWith('wait:')) {

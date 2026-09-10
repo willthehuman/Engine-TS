@@ -7,6 +7,7 @@ import { brain } from './bot.js';
 import { botLog } from './EventLog.js';
 import { Percept } from './Percept.js';
 import { compileGoal } from './goals.js';
+import { CombatTrainRoutine } from './combat.js';
 import { currentDialog, resetDialog } from './dialog.js';
 import ScriptState from '#/engine/script/ScriptState.js';
 import World from '#/engine/World.js';
@@ -15,6 +16,7 @@ import LocType from '#/cache/config/LocType.js';
 import ObjType from '#/cache/config/ObjType.js';
 import InvType from '#/cache/config/InvType.js';
 import ParamType from '#/cache/config/ParamType.js';
+import Npc from '#/engine/entity/Npc.js';
 import type Player from '#/engine/entity/Player.js';
 
 const PORT = 43695;
@@ -45,9 +47,20 @@ export async function startBotHttp(): Promise<void> {
             activeScript: bot.player.activeScript?.execution ?? null,
             resumeButtons: bot.player.resumeButtons,
             target: bot.player.target ? String((bot.player.target as unknown as { constructor: { name: string } }).constructor.name) : null,
+            targetName: bot.player.target && bot.player.target instanceof Npc ? (NpcType.get(bot.player.target.type)?.name ?? null) : null,
+            targetHp: bot.player.target && bot.player.target instanceof Npc ? bot.player.target.levels[3] : null,
+            hasInteraction: bot.player.hasInteraction(),
             waypoints: bot.player.waypointIndex !== -1,
             protect: bot.player.protect,
             delayed: bot.player.delayed
+        };
+        const pp = bot.player;
+        snap.skills = {
+            attack: { level: pp.levels[0], xp: pp.stats[0] },
+            defence: { level: pp.levels[1], xp: pp.stats[1] },
+            strength: { level: pp.levels[2], xp: pp.stats[2] },
+            hitpoints: { level: pp.levels[3], xp: pp.stats[3] },
+            prayer: { level: pp.levels[5], xp: pp.stats[5] }
         };
         return snap;
     });
@@ -246,6 +259,16 @@ export async function startBotHttp(): Promise<void> {
             }
             case 'stop': {
                 return { action, ...bot.stop() };
+            }
+            case 'train': {
+                const npc = String(args.npc ?? '').trim();
+                if (!npc) {
+                    return { action, ok: false, reason: 'no_npc' };
+                }
+                const kills = Number(args.kills ?? 0);
+                bot.clearRoutines();
+                bot.enqueue(new CombatTrainRoutine(npc, Number.isFinite(kills) && kills > 0 ? Math.round(kills) : 0));
+                return { action, ok: true, npc, kills: kills > 0 ? kills : 'endless' };
             }
             case 'set_goal': {
                 const steps = Array.isArray(args.steps) ? (args.steps as string[]) : [];
