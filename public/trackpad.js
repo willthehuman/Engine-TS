@@ -35,6 +35,8 @@ export function classifyTap(maxPointers, durationMs, maxDistPx) {
 if (typeof document !== 'undefined') {
     const canvas = document.getElementById('canvas');
     const zone = document.getElementById('trackpad-zone');
+    const surface = document.getElementById('trackpad-surface');
+    const buttonsBox = document.getElementById('trackpad-buttons');
     const btnL = document.getElementById('trackpad-lmb');
     const btnR = document.getElementById('trackpad-rmb');
 
@@ -118,16 +120,16 @@ if (typeof document !== 'undefined') {
         dispatch('pointermove', 0, heldButton === 2 ? 2 : heldButton === 0 ? 1 : 0);
     }
 
-    zone.addEventListener('pointerdown', e => {
+    surface.addEventListener('pointerdown', e => {
         e.preventDefault();
-        if (zone.setPointerCapture) {
-            try { zone.setPointerCapture(e.pointerId); } catch { /* synthetic pointer id */ }
+        if (surface.setPointerCapture) {
+            try { surface.setPointerCapture(e.pointerId); } catch { /* synthetic pointer id */ }
         }
         active.set(e.pointerId, { x0: e.clientX, y0: e.clientY, x: e.clientX, y: e.clientY, t0: e.timeStamp });
         maxPointers = Math.max(maxPointers, active.size);
     });
 
-    zone.addEventListener('pointermove', moveFrom);
+    surface.addEventListener('pointermove', moveFrom);
 
     function endPointer(e, cancelled) {
         const t = active.get(e.pointerId);
@@ -142,8 +144,8 @@ if (typeof document !== 'undefined') {
             maxPointers = 0;
         }
     }
-    zone.addEventListener('pointerup', e => endPointer(e, false));
-    zone.addEventListener('pointercancel', e => endPointer(e, true));
+    surface.addEventListener('pointerup', e => endPointer(e, false));
+    surface.addEventListener('pointercancel', e => endPointer(e, true));
 
     function wireButton(el, button) {
         el.addEventListener('pointerdown', e => {
@@ -177,10 +179,13 @@ if (typeof document !== 'undefined') {
     });
 
     function applyMode(m) {
-        mode = (m === 'tap' || m === 'buttons') ? m : 'off';
+        mode = (m === 'tap' || m === 'buttons' || m === 'inverted') ? m : 'off';
         const on = mode !== 'off';
+        const showButtons = mode === 'buttons' || mode === 'inverted';
         zone.style.display = on ? 'flex' : 'none';
-        btnL.style.display = btnR.style.display = (mode === 'buttons') ? '' : 'none';
+        surface.style.display = on ? '' : 'none';
+        buttonsBox.style.display = showButtons ? 'flex' : 'none';
+        buttonsBox.classList.toggle('inverted', mode === 'inverted');
         cursorEl.style.display = on ? 'block' : 'none';
         if (on) {
             requestAnimationFrame(() => {

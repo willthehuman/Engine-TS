@@ -120,17 +120,34 @@
 
         #trackpad-zone {
             display: none;
+            flex-direction: row;
+            align-items: stretch;
             margin: 6px auto 0 auto;
-            background: #0a0a0a;
-            background-image: radial-gradient(circle, #1c1c1c 1px, transparent 1px);
-            background-size: 22px 22px;
             border: 1px solid #333;
             border-radius: 6px;
             height: clamp(120px, 22vh, 220px);
-            touch-action: none;
             overscroll-behavior: contain;
             user-select: none;
             -webkit-user-select: none;
+        }
+
+        #trackpad-surface {
+            flex: 1;
+            background: #0a0a0a;
+            background-image: radial-gradient(circle, #1c1c1c 1px, transparent 1px);
+            background-size: 22px 22px;
+            border-radius: 5px 0 0 5px;
+            touch-action: none;
+        }
+
+        #trackpad-buttons {
+            display: none;
+            flex-direction: column;
+            width: min(225px, 38%);
+        }
+
+        #trackpad-buttons.inverted {
+            flex-direction: column-reverse;
         }
 
         #trackpad-zone .trackpad-btn {
@@ -317,13 +334,13 @@
                 mode = window.__trackpad.state().mode;
             } else {
                 const m = localStorage.getItem('trackpadMode');
-                mode = (m === 'tap' || m === 'buttons') ? m : 'off';
+                mode = (m === 'tap' || m === 'buttons' || m === 'inverted') ? m : 'off';
             }
             document.getElementById('trackpad-toggle').textContent = mode === 'off' ? 'Trackpad: Off' : 'Trackpad: On';
         }
 
         function setTrackpadMode(mode) {
-            const valid = (mode === 'tap' || mode === 'buttons');
+            const valid = (mode === 'tap' || mode === 'buttons' || mode === 'inverted');
             if (!valid) { mode = 'off'; }
             localStorage.setItem('trackpadMode', mode);
             if (valid) { localStorage.setItem('trackpadLastMode', mode); }
@@ -334,11 +351,12 @@
 
         function toggleTrackpad() {
             const cur = window.__trackpad ? window.__trackpad.state().mode : localStorage.getItem('trackpadMode');
-            if (cur === 'tap' || cur === 'buttons') {
+            const on = cur === 'tap' || cur === 'buttons' || cur === 'inverted';
+            if (on) {
                 setTrackpadMode('off');
             } else {
                 const last = localStorage.getItem('trackpadLastMode');
-                setTrackpadMode((last === 'tap' || last === 'buttons') ? last : 'buttons');
+                setTrackpadMode(last === 'tap' || last === 'buttons' || last === 'inverted' ? last : 'buttons');
             }
         }
 
@@ -438,8 +456,11 @@
                 Your browser is not capable of running our web client.
             </canvas>
             <div id="trackpad-zone">
-                <button class="trackpad-btn" id="trackpad-lmb" type="button">LMB hold + drag</button>
-                <button class="trackpad-btn" id="trackpad-rmb" type="button">RMB</button>
+                <div id="trackpad-surface"></div>
+                <div id="trackpad-buttons">
+                    <button class="trackpad-btn" id="trackpad-lmb" type="button">LMB hold + drag</button>
+                    <button class="trackpad-btn" id="trackpad-rmb" type="button">RMB</button>
+                </div>
             </div>
         </div>
 
@@ -473,6 +494,7 @@
                         <option value="off" id="off">Direct touch</option>
                         <option value="tap" id="tap">Trackpad (tap / 2-finger tap)</option>
                         <option value="buttons" id="buttons">Trackpad (+ L/R buttons)</option>
+                        <option value="inverted" id="inverted">Trackpad (inverted buttons)</option>
                     </optgroup>
                 </select> |
             </span>
