@@ -122,7 +122,7 @@ class World {
 
     private static readonly INV_STOCKRATE: number = 100; // 1m shop restocks
 
-    private static readonly PLAYER_SAVERATE: number = 1500; // 15m autosave
+    private static readonly PLAYER_SAVERATE: number = 300; // 3m autosave (was 15m stock: restarts vaporized up to 15m of progress)
     private static readonly PLAYER_COORDLOGRATE: number = 50; // 30s server check-in
 
     private static readonly AFK_EVENTRATE: number = 500; // 5m: 60/5 = 12 chances per hour

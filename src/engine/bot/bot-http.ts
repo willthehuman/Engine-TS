@@ -304,6 +304,16 @@ export async function startBotHttp(): Promise<void> {
         return { from: { x: p.x, z: p.z }, to: { x, z }, reached, legs };
     });
 
+    // graceful shutdown: orderly logout (flushes player saves + waits for the
+    // login server to confirm) then process.exit(0). Restart procedure MUST use
+    // this and wait for the process to exit — SIGKILL/Stop-Process -Force skips
+    // the flush and vaporizes everything since the last autosave (the 2026-09-10
+    // rollback reports). Takes ~15-30s (logout-flush confirm cycle).
+    app.post('/shutdown', async () => {
+        World.rebootTimer(0);
+        return { ok: true, note: 'orderly shutdown started; wait for process exit before relaunching' };
+    });
+
     app.get('/inventory', async () => {
         const bot = getBot();
         if (!bot) {
