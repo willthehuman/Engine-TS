@@ -116,6 +116,7 @@ export class GatherRoutine implements Routine {
     private idleTicks = 0;
     private lastPos = { x: -1, z: -1 };
     private readonly MAX_TICKS = 1500; // ~15 min hard cap
+    private blockTicks = 0;
     private readonly DROP_SCAN_RANGE = 15;
 
     constructor(item: string) {
@@ -165,8 +166,16 @@ export class GatherRoutine implements Routine {
             const w = this.walkToArea(bot);
             if (w === 'arrived') {
                 this.walked = true;
+                this.blockTicks = 0;
             } else if (w === 'blocked') {
-                return this.abort('walk_blocked', { to: `${this.src.area!.x},${this.src.area!.z}` });
+                // transient: parked on a bad tile, pathing warm-up, gate cycle —
+                // only give up after sustained blockage so the walker can recover
+                this.blockTicks++;
+                if (this.blockTicks > 45) {
+                    return this.abort('walk_blocked', { to: `${this.src.area!.x},${this.src.area!.z}` });
+                }
+            } else {
+                this.blockTicks = 0;
             }
             return 'running';
         }

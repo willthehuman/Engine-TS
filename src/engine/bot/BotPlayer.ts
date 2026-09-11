@@ -391,6 +391,29 @@ export class BotPlayer {
         const p = this.player;
         const path = findPath(p.level, p.x, p.z, x, z);
         if (!path || path.length === 0) {
+            // Self-heal: a phantom collision under the player (parked on a gate
+            // tile, tunnel corner, teleport crisp) poisons A* from the src. Step
+            // off onto the nearest neighbour from which the target is reachable;
+            // the routine re-paths from there on its next walkSegment call.
+            // (rs-sdk's walkTo does exactly this door/gate recovery.)
+            if (!p.hasWaypoints()) {
+                const cands: { x: number; z: number; d: number }[] = [];
+                for (let dx = -1; dx <= 1; dx++) {
+                    for (let dz = -1; dz <= 1; dz++) {
+                        if (dx === 0 && dz === 0) continue;
+                        cands.push({ x: p.x + dx, z: p.z + dz, d: Math.max(Math.abs(p.x + dx - x), Math.abs(p.z + dz - z)) });
+                    }
+                }
+                cands.sort((a, b) => a.d - b.d);
+                for (const c of cands) {
+                    if (!findPath(p.level, c.x, c.z, x, z)) continue;
+                    const hop = findPath(p.level, p.x, p.z, c.x, c.z);
+                    if (hop && hop.length > 0) {
+                        p.queueWaypoints(hop);
+                        return true;
+                    }
+                }
+            }
             return false;
         }
         p.queueWaypoints(path);
