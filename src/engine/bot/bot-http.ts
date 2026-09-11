@@ -352,6 +352,10 @@ export async function startBotHttp(): Promise<void> {
                 const res = bot.sendPm(String(args.to ?? ''), String(args.text ?? ''));
                 return { action, ...res };
             }
+            case 'friend_add': {
+                const res = bot.addFriend(String(args.target ?? args.user ?? ''));
+                return { action, ...res };
+            }
             case 'follow': {
                 const res = bot.followPlayer(String(args.user ?? ''));
                 return { action, ...res };

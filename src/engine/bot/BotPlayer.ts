@@ -14,6 +14,7 @@ import WordEnc from '#/cache/wordenc/WordEnc.js';
 import WordPack from '#/wordenc/WordPack.js';
 import { findPath } from '#/engine/GameMap.js';
 import { PlayerInfoProt } from '#/network/rsbuf/index.js';
+import { toBase37 } from '#/util/JString.js';
 import { botLog } from './EventLog.js';
 import { FollowRoutine, type Routine } from './routines.js';
 
@@ -217,6 +218,21 @@ export class BotPlayer {
         World.sendPrivateMessage(p, target.username37, clean);
         this.lastSayTick = World.currentTick;
         botLog.append('action', { action: 'pm', to: target.username, text: clean });
+        return { ok: true };
+    }
+
+    addFriend(name: string): { ok: boolean; reason?: string } {
+        const p = this.player;
+        const clean = (name ?? '').toString().toLowerCase().trim();
+        if (!clean.length) {
+            return { ok: false, reason: 'empty' };
+        }
+        if (clean === p.username) {
+            return { ok: false, reason: 'self' };
+        }
+        // same path a real client uses (friend add → World.addFriend → friend server)
+        World.addFriend(p, toBase37(clean));
+        botLog.append('action', { action: 'friend_add', target: clean });
         return { ok: true };
     }
 
