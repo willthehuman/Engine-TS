@@ -127,6 +127,10 @@ function postWebhook(payload: Record<string, unknown>): void {
         return;
     }
 
+    // wall-clock send time so the soul can discount stale messages (a run that wakes
+    // 10 min late should see the message is old, not treat it as this-second).
+    payload.clock = new Date().toLocaleTimeString('en-US', { hour12: false });
+
     const kind = String(payload.kind ?? '?');
     const from = String(payload.from ?? '?');
     const body = JSON.stringify(payload);
