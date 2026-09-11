@@ -66,7 +66,7 @@ export function shopNames(): string[] {
 }
 
 interface StockView {
-    inv: { capacity: number; get(slot: number): number };
+    inv: { capacity: number; get(slot: number): { id: number; count: number } | null };
 }
 
 function stockInv(bot: BotPlayer, comId: number): StockView | null {
@@ -170,8 +170,9 @@ export class BuyRoutine implements Routine {
                     return 'running';
                 }
                 for (let slot = 0; slot < st.inv.capacity; slot++) {
-                    const id = st.inv.get(slot);
-                    if (id <= 0) continue;
+                    const item = st.inv.get(slot);
+                    if (!item || item.id <= 0) continue;
+                    const id = item.id;
                     const name = InvType.get(id)?.debugname?.toLowerCase() ?? '';
                     if (name.includes(this.itemQuery)) {
                         this.buySlot = slot;
