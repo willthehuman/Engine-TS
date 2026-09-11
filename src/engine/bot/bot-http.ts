@@ -358,6 +358,10 @@ export async function startBotHttp(): Promise<void> {
                 const res = bot.addFriend(String(args.target ?? args.user ?? ''));
                 return { action, ...res };
             }
+            case 'teleport': {
+                const res = bot.teleportTo(Number(args.x), Number(args.z), Number(args.level ?? 0));
+                return { action, ...res };
+            }
             case 'follow': {
                 const res = bot.followPlayer(String(args.user ?? ''));
                 return { action, ...res };

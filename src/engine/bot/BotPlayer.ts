@@ -236,6 +236,21 @@ export class BotPlayer {
         return { ok: true };
     }
 
+    /**
+     * Ops rescue: teleport Pepe out of unwalkable spots (random-event maze,
+     * clipped corners). Same player.teleport() real clients use. Logged.
+     */
+    teleportTo(x: number, z: number, level = 0): { ok: boolean; reason?: string } {
+        if (!Number.isFinite(x) || !Number.isFinite(z)) {
+            return { ok: false, reason: 'bad_coords' };
+        }
+        const p = this.player;
+        this.clearRoutines();
+        p.teleport(Math.round(x), Math.round(z), level);
+        botLog.append('action', { action: 'teleport', x: Math.round(x), z: Math.round(z), level });
+        return { ok: true };
+    }
+
     followPlayer(name: string): { ok: boolean; reason?: string } {
         const p = this.player;
         const nm = (name ?? '').toString().toLowerCase().trim();
