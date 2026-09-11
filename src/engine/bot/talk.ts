@@ -192,6 +192,20 @@ export class TalkRoutine implements Routine {
                 // dismiss any pre-existing overlay (e.g. the tutorial "Getting started"
                 // screen) — it sets a MAIN modal that makes canAccess() false and
                 // blocks both auto-walking and interactions entirely.
+                // Already in a dialog (left open by an earlier routine/run)? Rejoin it.
+                // NEVER dismiss-then-refire: closing kills the conversation and firing
+                // [opnpc1] restarts content from the opening menu (the Cook/Hans loops:
+                // every re-talk reset the menu, picks never advanced).
+                const alreadyOpen = currentDialog(p.resumeButtons);
+                if (alreadyOpen && alreadyOpen.lines.length > 0) {
+                    this.phase = Phase.DIALOG;
+                    this.lastOptionTick = World.currentTick - 5; // act promptly
+                    this.talkedAtTick = World.currentTick;
+                    this.lastPickSig = '';
+                    this.pickRepeat = 0;
+                    botLog.append('action', { action: 'talk_rejoin', npc: this.npcName });
+                    return 'running';
+                }
                 if (p.containsModalInterface()) {
                     p.closeModal();
                     botLog.append('action', { action: 'dismiss_overlay' });
