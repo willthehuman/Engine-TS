@@ -15,6 +15,9 @@ import { botLog } from './EventLog.js';
 
 const URL = (process.env.PEPE_WEBHOOK_URL ?? '').trim();
 const SECRET = (process.env.PEPE_WEBHOOK_SECRET ?? '').trim();
+// Dedicated dialog-callback route (separate prompt: pick-only micro-brain).
+// Falls back to the main webhook when unset.
+const DIALOG_URL = (process.env.PEPE_DIALOG_URL ?? '').trim();
 // test-harness mute: touch D:\lostcity\.nostrategist to silence soul wakes
 // (notices) during manual mechanics tests without touching chat/PM routing.
 const MUTE_FILE = 'D:/lostcity/.nostrategist';
@@ -82,6 +85,16 @@ export function forwardNotice(text: string, extra: Record<string, unknown> = {})
     postWebhook({ kind: 'notice', from: 'engine', text, ts: Date.now(), ...extra });
 }
 
+/**
+ * Dialog callbacks go to the picker route, NOT the main brain route. Rationale
+ * (2026-09-11): callback wakes with the full brain prompt kept setting movement
+ * goals instead of just picking — five supersedes per conversation. The picker
+ * route's micro-prompt allows exactly one thing: dialog_pick.
+ */
+export function forwardDialogNotice(text: string, extra: Record<string, unknown> = {}): void {
+    postWebhook({ kind: 'dialog', from: 'engine', text, ts: Date.now(), ...extra }, DIALOG_URL || undefined);
+}
+
 /** One-line summary for a notable bot-log event, or null when not notable. */
 export function summarizeNotable(ev: { type: string; data: Record<string, unknown> }): string | null {
     const d = ev.data;
@@ -139,8 +152,9 @@ export function summarizeNotable(ev: { type: string; data: Record<string, unknow
     return null;
 }
 
-function postWebhook(payload: Record<string, unknown>): void {
-    if (!soulRoutingEnabled()) {
+function postWebhook(payload: Record<string, unknown>, urlOverride?: string): void {
+    const target = (urlOverride ?? URL).trim();
+    if (!target || !SECRET.length) {
         return;
     }
 
@@ -157,7 +171,7 @@ function postWebhook(payload: Record<string, unknown>): void {
         .update(ts + '.' + body)
         .digest('hex');
 
-    void fetch(URL, {
+    void fetch(target, {
         method: 'POST',
         headers: {
             'Content-Type': 'application/json',

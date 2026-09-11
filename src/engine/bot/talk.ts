@@ -16,7 +16,7 @@ import { botLog } from './EventLog.js';
 import type { BotPlayer } from './BotPlayer.js';
 import type { Routine } from './routines.js';
 import { currentDialog, wasUnreachable, clearDialogFlags, requestDialogChoice, consumeDialogChoice, clearDialogChoice } from './dialog.js';
-import { soulRoutingEnabled, forwardNotice, noticesMuted } from './webhook.js';
+import { soulRoutingEnabled, forwardDialogNotice, noticesMuted } from './webhook.js';
 import ScriptProvider from '#/engine/script/ScriptProvider.js';
 import ScriptRunner from '#/engine/script/ScriptRunner.js';
 import { findPath } from '#/engine/GameMap.js';
@@ -312,7 +312,7 @@ export class TalkRoutine implements Routine {
                         this.choiceAskedAt = World.currentTick;
                         const lines = dlg.lines.slice(-4).join(' / ');
                         const opts = dlg.options.map(o => `${o.comId}: ${o.text}`).join(' | ');
-                        forwardNotice(
+                        forwardDialogNotice(
                             `Pepe is talking to ${this.npcName} and must choose a reply. Dialog: "${lines}". Options (reply with dialog_pick + comId): ${opts}. Callback sig: ${sig} — pass it back as dialog_pick sig; a stale pick is rejected instead of hijacking the page.`,
                             { dialog_npc: this.npcName, sig }
                         );
