@@ -96,11 +96,19 @@ export function summarizeNotable(ev: { type: string; data: Record<string, unknow
         return `Pepe leveled ${d.skill ?? '?'} to ${d.level ?? '?'}!`;
     }
     if (ev.type === 'action' && d.action === 'goal_superseded') {
-        return `Your goal '${d.old_goal ?? '?'}' was SUPERSEDED${d.new_goal ? ` by '${d.new_goal}'` : ' by a direct command'} — stop acting on the old task immediately. No further engine actions for it.`;
+        // Both involved runs already know (the superseder acted; the superseded sees
+        // the event). No wake — a wake here spawns a third rival.
+        return null;
     }
     if (ev.type === 'action' && d.action === 'goal_done') {
+        // Only failures wake the soul: the acting run watches events and sees its own
+        // completion. Forwarding 'done' wakes a rival run that sets a new goal, whose
+        // completion wakes another run... (2026-09-11: self-sustaining Diango loop.)
+        if ((d.outcome ?? 'done') !== 'aborted') {
+            return null;
+        }
         const steps = Array.isArray(d.steps) ? d.steps.join('; ') : '';
-        return `Goal finished (${d.outcome ?? '?'}): ${d.goal ?? '?'}. Steps: ${steps}. If you were waiting on this, STOP polling and report.`;
+        return `Goal FAILED (${d.goal ?? '?'}). Steps: ${steps}. Replan or report.`;
     }
     if (ev.type === 'reflex') {
         switch (d.kind) {
