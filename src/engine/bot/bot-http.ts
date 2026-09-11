@@ -422,8 +422,12 @@ export async function startBotHttp(): Promise<void> {
                 if (!pending) {
                     return { action, ok: false, reason: 'nothing_pending' };
                 }
-                const ok = resolveDialogChoice(comId);
-                return { action, ok, comId, pending };
+                const sig = typeof args.sig === 'string' ? args.sig : undefined;
+                const result = resolveDialogChoice(comId, sig);
+                if (result !== 'ok') {
+                    return { action, ok: false, reason: result, pending };
+                }
+                return { action, ok: true, comId, pending };
             }
             case 'set_goal': {
                 const steps = Array.isArray(args.steps) ? (args.steps as string[]) : [];

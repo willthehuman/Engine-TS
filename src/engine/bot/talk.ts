@@ -312,7 +312,10 @@ export class TalkRoutine implements Routine {
                         this.choiceAskedAt = World.currentTick;
                         const lines = dlg.lines.slice(-4).join(' / ');
                         const opts = dlg.options.map(o => `${o.comId}: ${o.text}`).join(' | ');
-                        forwardNotice(`Pepe is talking to ${this.npcName} and must choose a reply. Dialog: "${lines}". Options (reply with dialog_pick + comId): ${opts}`, { dialog_npc: this.npcName });
+                        forwardNotice(
+                            `Pepe is talking to ${this.npcName} and must choose a reply. Dialog: "${lines}". Options (reply with dialog_pick + comId): ${opts}. Callback sig: ${sig} — pass it back as dialog_pick sig; a stale pick is rejected instead of hijacking the page.`,
+                            { dialog_npc: this.npcName, sig }
+                        );
                         botLog.append('action', { action: 'dialog_callback', npc: this.npcName, options: dlg.options.length });
                     }
                     const pick = consumeDialogChoice(sig);

@@ -149,8 +149,7 @@ export class BotPlayer {
 
     enqueue(r: Routine, clear = false): void {
         if (clear) {
-            this.routineQueue.length = 0;
-            this.routine = null;
+            this.clearRoutines(); // emits goal_superseded when killing a tracked goal
         }
         this.routineQueue.push(r);
     }
@@ -159,14 +158,25 @@ export class BotPlayer {
     goalLabel: string | null = null;
     private goalSteps: string[] = [];
 
-    /** Enqueue a compiled goal spec as one trackable unit. */
+    /** Enqueue a compiled goal spec as one trackable unit. Preempting a live goal
+     * emits goal_superseded so stale runs disarm themselves on their next poll. */
     setGoal(steps: string[], routines: Routine[]): void {
-        this.clearRoutines();
+        const old = this.goalLabel;
+        const wasActive = this.routine !== null || this.routineQueue.length > 0;
+        this.clearQueue();
         this.goalLabel = steps.join(' | ');
         this.goalSteps = [];
         for (const r of routines) {
             this.enqueue(r);
         }
+        if (old && wasActive) {
+            botLog.append('action', { action: 'goal_superseded', old_goal: old, new_goal: this.goalLabel });
+        }
+    }
+
+    private clearQueue(): void {
+        this.routineQueue.length = 0;
+        this.routine = null;
     }
 
     private describeRoutine(r: Routine): string {
@@ -189,8 +199,12 @@ export class BotPlayer {
     }
 
     clearRoutines(): void {
-        this.routineQueue.length = 0;
-        this.routine = null;
+        if (this.goalLabel !== null) {
+            // tracked goal killed by a direct command (follow/stop/train...) — tell
+            // the run that set it to stand down instead of acting stale.
+            botLog.append('action', { action: 'goal_superseded', old_goal: this.goalLabel, new_goal: null });
+        }
+        this.clearQueue();
         this.goalLabel = null;
         this.goalSteps = [];
     }
@@ -384,8 +398,7 @@ export class BotPlayer {
     }
 
     stop(): { ok: boolean } {
-        this.routineQueue.length = 0;
-        this.routine = null;
+        this.clearRoutines(); // emits goal_superseded when killing a tracked goal
         this.player.clearWaypoints();
         this.brainState = 'idle';
         botLog.append('admin', { action: 'stop' });

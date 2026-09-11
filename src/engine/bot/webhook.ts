@@ -95,6 +95,9 @@ export function summarizeNotable(ev: { type: string; data: Record<string, unknow
     if (ev.type === 'action' && d.action === 'level_up') {
         return `Pepe leveled ${d.skill ?? '?'} to ${d.level ?? '?'}!`;
     }
+    if (ev.type === 'action' && d.action === 'goal_superseded') {
+        return `Your goal '${d.old_goal ?? '?'}' was SUPERSEDED${d.new_goal ? ` by '${d.new_goal}'` : ' by a direct command'} — stop acting on the old task immediately. No further engine actions for it.`;
+    }
     if (ev.type === 'action' && d.action === 'goal_done') {
         const steps = Array.isArray(d.steps) ? d.steps.join('; ') : '';
         return `Goal finished (${d.outcome ?? '?'}): ${d.goal ?? '?'}. Steps: ${steps}. If you were waiting on this, STOP polling and report.`;

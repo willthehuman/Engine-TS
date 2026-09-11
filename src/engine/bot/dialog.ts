@@ -45,13 +45,18 @@ export function requestDialogChoice(sig: string): boolean {
     return true;
 }
 
-/** Agent's answer: the comId to click (must still be among resumeButtons). */
-export function resolveDialogChoice(comId: number): boolean {
+/** Agent's answer: the comId to click (must still be among resumeButtons).
+ * Pass the callback sig back: a pick for a SUPERSEDED page is rejected as 'stale'
+ * instead of hijacking the current page (two runs answering one dialog). */
+export function resolveDialogChoice(comId: number, expectedSig?: string): 'ok' | 'stale' | 'nothing_pending' {
     if (!pendingSig) {
-        return false;
+        return 'nothing_pending';
+    }
+    if (expectedSig && expectedSig !== pendingSig) {
+        return 'stale';
     }
     pendingPick = comId;
-    return true;
+    return 'ok';
 }
 
 /** Consume the pick if it answers the given dialog page, else null. */
