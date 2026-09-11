@@ -17,6 +17,12 @@ export class Brain {
     private lastBase = new Map<string, number[]>();
     private lastNoticedSeq = 0;
     private noticedInit = false;
+    // Wake cooldown: one soul wake per window. The acting run replans via events
+    // immediately; without this, every abort/completion wakes a rival run that sets
+    // a new goal whose outcome wakes another run (2026-09-11 self-sustaining cascade).
+    // Dialog callbacks bypass (direct post in talk.ts, loop-guarded there).
+    private lastWakeTick = -100000;
+    private static readonly WAKE_COOLDOWN_TICKS = 600; // 6 min
 
     register(bot: BotPlayer): void {
         this.bots.push(bot);
@@ -81,6 +87,10 @@ export class Brain {
             }
             const text = summarizeNotable(ev);
             if (text) {
+                if (World.currentTick - this.lastWakeTick < Brain.WAKE_COOLDOWN_TICKS) {
+                    continue; // drain silently — a wake is already working this window
+                }
+                this.lastWakeTick = World.currentTick;
                 sent++;
                 forwardNotice(text, { event: ev.type + ':' + String((ev.data as { action?: string; kind?: string }).action ?? (ev.data as { kind?: string }).kind ?? '?') });
             }
