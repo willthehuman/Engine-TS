@@ -99,6 +99,7 @@ export async function startBotHttp(): Promise<void> {
             // stats[] stores xp x10 (decimal-point trick) — report real xp.
             (snap.skills as Record<string, unknown>)[SKILL_NAMES[si]] = { level: pp.baseLevels[si], xp: Math.floor(pp.stats[si] / 10) };
         }
+        snap.inventory = inventorySnapshot(bot);
         return snap;
     });
 
