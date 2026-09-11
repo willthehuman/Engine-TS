@@ -118,13 +118,19 @@ export class BotPlayer {
             this.currentRoutineName = this.routine.constructor.name;
             const done = this.routine.step(this);
             if (done === 'done') {
+                this.goalSteps.push(`${this.describeRoutine(this.routine)} done`);
                 this.routine = null;
                 this.currentRoutineName = null;
                 this.nextRoutine();
+                if (this.routine === null && this.goalLabel !== null) {
+                    this.emitGoalDone('done'); // whole queue drained
+                }
             } else if (done === 'aborted') {
+                this.goalSteps.push(`${this.describeRoutine(this.routine)} aborted`);
                 this.routine = null;
                 this.currentRoutineName = null;
                 this.routineQueue.length = 0;
+                this.emitGoalDone('aborted');
             }
         } else {
             this.nextRoutine();
@@ -149,9 +155,44 @@ export class BotPlayer {
         this.routineQueue.push(r);
     }
 
+    /** Goal label for completion signals (set_goal DSL). Null = free routines, no signal. */
+    goalLabel: string | null = null;
+    private goalSteps: string[] = [];
+
+    /** Enqueue a compiled goal spec as one trackable unit. */
+    setGoal(steps: string[], routines: Routine[]): void {
+        this.clearRoutines();
+        this.goalLabel = steps.join(' | ');
+        this.goalSteps = [];
+        for (const r of routines) {
+            this.enqueue(r);
+        }
+    }
+
+    private describeRoutine(r: Routine): string {
+        const name = r?.constructor?.name ?? '?';
+        const extra = (r as unknown as { npcName?: unknown })?.npcName;
+        return typeof extra === 'string' && extra ? `${name}:${extra}` : name;
+    }
+
+    private emitGoalDone(outcome: string): void {
+        const goal = this.goalLabel;
+        this.goalLabel = null;
+        const steps = this.goalSteps;
+        this.goalSteps = [];
+        if (!goal) {
+            return;
+        }
+        // noticePoll forwards this via summarizeNotable: the explicit 'you are done'
+        // signal, so agents stop on evidence instead of polling state in circles.
+        botLog.append('action', { action: 'goal_done', goal, outcome, steps });
+    }
+
     clearRoutines(): void {
         this.routineQueue.length = 0;
         this.routine = null;
+        this.goalLabel = null;
+        this.goalSteps = [];
     }
 
     // ---- validated actions (the ONLY way the outside world mutates Pepe) ----

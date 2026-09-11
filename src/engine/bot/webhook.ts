@@ -95,6 +95,10 @@ export function summarizeNotable(ev: { type: string; data: Record<string, unknow
     if (ev.type === 'action' && d.action === 'level_up') {
         return `Pepe leveled ${d.skill ?? '?'} to ${d.level ?? '?'}!`;
     }
+    if (ev.type === 'action' && d.action === 'goal_done') {
+        const steps = Array.isArray(d.steps) ? d.steps.join('; ') : '';
+        return `Goal finished (${d.outcome ?? '?'}): ${d.goal ?? '?'}. Steps: ${steps}. If you were waiting on this, STOP polling and report.`;
+    }
     if (ev.type === 'reflex') {
         switch (d.kind) {
             case 'death':
@@ -115,6 +119,8 @@ export function summarizeNotable(ev: { type: string; data: Record<string, unknow
                 return `Pepe has no ${d.item ?? '?'} in his backpack. Check inventory() and replan.`;
             case 'use_no_target':
                 return `Pepe can't find ${d.target ?? '?'} to use the item on. Try locate() for the right name.`;
+            case 'dialog_loop':
+                return `Pepe is stuck picking the same reply with ${d.npc ?? '?'} (${d.repeats ?? '?'}x) — the conversation is NOT advancing. Pick a DIFFERENT option with dialog_pick, or walk away. Do not pick the same comId again.`;
             default:
                 return null;
         }

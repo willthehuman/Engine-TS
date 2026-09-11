@@ -434,10 +434,7 @@ export async function startBotHttp(): Promise<void> {
                 if (!routines.length) {
                     return { action, ok: false, reason: 'unparseable' };
                 }
-                bot.clearRoutines();
-                for (const r of routines) {
-                    bot.enqueue(r);
-                }
+                bot.setGoal(steps, routines);
                 return { action, ok: true, steps: steps.length };
             }
             default:

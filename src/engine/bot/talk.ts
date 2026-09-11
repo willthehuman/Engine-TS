@@ -73,6 +73,8 @@ export class TalkRoutine implements Routine {
     private lastRepathTick = -1000;
     private choiceAskedAt = -1000;
     private talkRetries = 0;
+    private lastPickSig = '';
+    private pickRepeat = 0;
     private readonly MAX_OPTIONS = 12; // hard cap: never loop a dialog forever
 
     constructor(name: string) {
@@ -228,6 +230,8 @@ export class TalkRoutine implements Routine {
                 this.lastOptionTick = World.currentTick;
                 this.talkedAtTick = World.currentTick;
                 botLog.append('action', { action: 'talk_to', npc: this.npcName });
+                this.lastPickSig = '';
+                this.pickRepeat = 0;
                 return 'running';
             }
             case Phase.DIALOG: {
@@ -302,8 +306,8 @@ export class TalkRoutine implements Routine {
                 // to the Hermes agent (questing unlock). Timeout falls back to the
                 // deterministic first option so dialogs never stall.
                 let option = dlg.options[0];
+                const sig = this.npcName + '|' + dlg.options.map(o => o.comId).join(',');
                 if (soulRoutingEnabled() && !noticesMuted()) {
-                    const sig = this.npcName + '|' + dlg.options.map(o => o.comId).join(',');
                     if (requestDialogChoice(sig)) {
                         this.choiceAskedAt = World.currentTick;
                         const lines = dlg.lines.slice(-4).join(' / ');
@@ -333,6 +337,19 @@ export class TalkRoutine implements Routine {
                     p.executeScript(p.activeScript, true, true);
                     this.optionsPicked++;
                     this.lastOptionTick = World.currentTick;
+                    // loop guard: same options page executed repeatedly = no progress.
+                    // (observed: Hans 'in charge' page picked 3x while an agent polled.)
+                    if (sig === this.lastPickSig) {
+                        this.pickRepeat++;
+                    } else {
+                        this.lastPickSig = sig;
+                        this.pickRepeat = 1;
+                    }
+                    if (this.pickRepeat >= 3) {
+                        botLog.append('reflex', { kind: 'dialog_loop', npc: this.npcName, repeats: this.pickRepeat });
+                        p.closeModal();
+                        return 'aborted';
+                    }
                     botLog.append('action', { action: 'dialog_option', comId: option.comId, text: option.text.slice(0, 60) });
                 } else {
                     // not resumable via buttons — back off, stall logic will close us out
