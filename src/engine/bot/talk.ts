@@ -75,7 +75,7 @@ export class TalkRoutine implements Routine {
     private talkRetries = 0;
     private lastPickSig = '';
     private pickRepeat = 0;
-    private readonly MAX_OPTIONS = 12; // hard cap: never loop a dialog forever
+    private readonly MAX_OPTIONS = 40; // sanity ceiling; real loop protection is the per-menu repeat guard
 
     constructor(name: string) {
         this.npcName = name;
@@ -235,6 +235,7 @@ export class TalkRoutine implements Routine {
                 if (opScript) {
                     // executeScript (not runScript): a suspending dialog must attach
                     // as activeScript or DIALOG can never resume it
+                    p.resumeButtons = []; // fresh conversation — never inherit stale menu buttons
                     p.executeScript(ScriptRunner.init(opScript, p, npc), true);
                     botLog.append('action', { action: 'talk_fire', npc: this.npcName, dist: Math.max(Math.abs(npc.x - p.x), Math.abs(npc.z - p.z)) });
                 } else {
@@ -297,7 +298,12 @@ export class TalkRoutine implements Routine {
                     // No resume-button options → this is a "click here to continue"
                     // page. The client advances these with RESUME_PAUSEBUTTON (opcode 72):
                     // resume the paused script directly, exactly like that handler does.
-                    if (p.activeScript && p.activeScript.execution === ScriptState.PAUSEBUTTON) {
+                    if (p.activeScript && (p.activeScript.execution === ScriptState.PAUSEBUTTON || p.activeScript.execution === ScriptState.COUNTDIALOG)) {
+                        // consume this pause's buttons: the NEXT pause re-registers its own
+                        // via if_addresumebutton. Without clearing, a menu's buttons linger
+                        // through the following chat pages and re-picking them looks like a
+                        // loop while the pages are actually advancing (2026-09-11 Cook).
+                        p.resumeButtons = [];
                         p.executeScript(p.activeScript, true, true);
                         this.optionsPicked++;
                         this.lastOptionTick = World.currentTick;
@@ -351,6 +357,7 @@ export class TalkRoutine implements Routine {
                 }
                 p.lastCom = option.comId;
                 if (p.resumeButtons.includes(option.comId) && p.activeScript && (p.activeScript.execution === ScriptState.PAUSEBUTTON || p.activeScript.execution === ScriptState.COUNTDIALOG)) {
+                    p.resumeButtons = []; // consume — buttons belong to THIS pause only
                     p.executeScript(p.activeScript, true, true);
                     this.optionsPicked++;
                     this.lastOptionTick = World.currentTick;
