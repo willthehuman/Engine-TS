@@ -121,7 +121,30 @@ export function summarizeNotable(ev: { type: string; data: Record<string, unknow
             return null;
         }
         const steps = Array.isArray(d.steps) ? d.steps.join('; ') : '';
-        return `Goal FAILED (${d.goal ?? '?'}). Steps: ${steps}. Replan or report.`;
+        // The WHY matters more than the WHAT: append the routine's most recent
+        // failure reflex (buy_fail need_coins / gather_fail no_drop / ...) so
+        // the soul can replan AT the cause instead of re-running the same goal
+        // blind (2026-09-11: four identical buy:pot replans before this).
+        let why = '';
+        try {
+            const seq = (ev as any).seq ?? 0;
+            const tail = botLog.tail(null, 80).filter((e: any) => !seq || (e as any).seq < seq);
+            for (let i = tail.length - 1; i >= 0; i--) {
+                const t = tail[i];
+                if (t.type !== 'reflex') continue;
+                const td = t.data as Record<string, unknown>;
+                const kind = String(td.kind ?? '');
+                if (kind.endsWith('_fail') || kind.endsWith('_abort')) {
+                    const reason = td.reason ?? kind;
+                    const item = td.item ?? '';
+                    why = ` Reason: ${kind}${item ? ' (' + item + ')' : ''}${reason !== kind ? ' — ' + reason : ''}.`;
+                    break;
+                }
+            }
+        } catch {
+            // reason enrichment is best-effort; the notice must never die on it
+        }
+        return `Goal FAILED (${d.goal ?? '?'}). Steps: ${steps}.${why} Replan or report.`;
     }
     if (ev.type === 'reflex') {
         switch (d.kind) {
