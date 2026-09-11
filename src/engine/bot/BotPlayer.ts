@@ -57,9 +57,6 @@ export class BotPlayer {
     private doorTask: { x: number; z: number; type: number; level: number; opIndex: number; phase: 'walk' | 'fire' | 'wait'; ticks: number } | null = null;
     private lastDoorOpenTick = -100;
     private doorsOpenedThisGoal = 0;
-    private lastMovedX = -9999;
-    private lastMovedZ = -9999;
-    private lastMovedTick = -9999;
     static readonly SAY_COOLDOWN_TICKS = 5; // 1 say / 3s
     static readonly MOVE_COOLDOWN_TICKS = 1; // 2 moves / s
     static readonly MAX_ACTIONS_PER_MIN = 25;
@@ -127,39 +124,6 @@ export class BotPlayer {
         // door/gate task advances independently of the routine (it only
         // clears after the open op lands and the collision updates)
         this.stepDoorTask();
-
-        // movement stall watchdog: waypoints queued but no movement for 45+
-        // ticks means the mover silently refuses every step (parked ON a
-        // collision tile — e.g. a fence/gate cell restored from a save).
-        // findPath can still "succeed" from such a tile, so the routine keeps
-        // re-issuing the same dead walk forever. Force-hop to the nearest
-        // walkable neighbour instead; the routine re-paths from there.
-        if (p.hasWaypoints() && World.currentTick - this.lastMovedTick > 45) {
-            // only auto-recover when we genuinely have queued steps
-            p.clearWaypoints();
-            const cands: { x: number; z: number; d: number }[] = [];
-            for (let dx = -1; dx <= 1; dx++) {
-                for (let dz = -1; dz <= 1; dz++) {
-                    if (dx === 0 && dz === 0) continue;
-                    cands.push({ x: p.x + dx, z: p.z + dz, d: Math.max(Math.abs(dx), Math.abs(dz)) });
-                }
-            }
-            cands.sort((a, b) => a.d - b.d);
-            for (const c of cands) {
-                const hop = findPath(p.level, p.x, p.z, c.x, c.z);
-                if (hop && hop.length > 0) {
-                    p.queueWaypoints(hop);
-                    botLog.append('reflex', { kind: 'stuck_clear', from: `${p.x},${p.z}`, hop: `${c.x},${c.z}` });
-                    break;
-                }
-            }
-            this.lastMovedTick = World.currentTick;
-        }
-        if (p.x !== this.lastMovedX || p.z !== this.lastMovedZ) {
-            this.lastMovedX = p.x;
-            this.lastMovedZ = p.z;
-            this.lastMovedTick = World.currentTick;
-        }
 
         // step the routine queue
         if (this.routine) {
