@@ -51,7 +51,7 @@ export function forwardIngameEvent(kind: 'pm' | 'chat', from: string, text: stri
     }
 }
 
-const CHAT_BATCH_MS = 12_000;
+const CHAT_BATCH_MS = 2_000; // Will 2026-09-10: responsiveness over burst-catch
 const CHAT_BATCH_MAX = 5;
 interface PendingBatch {
     kind: 'pm' | 'chat';
