@@ -32,7 +32,44 @@ export function noticesMuted(): boolean {
 }
 
 export function forwardIngameEvent(kind: 'pm' | 'chat', from: string, text: string, extra: Record<string, unknown> = {}): void {
-    postWebhook({ kind, from, text, ts: Date.now(), ...extra });
+    // Batch rapid same-sender messages into ONE wake: without this, "yo" / "yo pepe" /
+    // "hey" typed in 10s spawns 3 agent runs that queue on the model, answer minutes
+    // late, and each stale run answers anyway (the 'repeats'). 12s window, max 5.
+    // Engine notices (forwardNotice) deliberately bypass this — dialog/quest
+    // callbacks are time-sensitive and must wake the soul immediately.
+    const key = kind + '' + from.toLowerCase();
+    let b = pendingBatches.get(key);
+    if (!b) {
+        b = { kind, from, texts: [], extra: {}, timer: setTimeout(() => flushBatch(key), CHAT_BATCH_MS) };
+        pendingBatches.set(key, b);
+    }
+    b.texts.push(text);
+    Object.assign(b.extra, extra); // latest extras (e.g. dist) win
+    if (b.texts.length >= CHAT_BATCH_MAX) {
+        clearTimeout(b.timer);
+        flushBatch(key);
+    }
+}
+
+const CHAT_BATCH_MS = 12_000;
+const CHAT_BATCH_MAX = 5;
+interface PendingBatch {
+    kind: 'pm' | 'chat';
+    from: string;
+    texts: string[];
+    extra: Record<string, unknown>;
+    timer: ReturnType<typeof setTimeout>;
+}
+const pendingBatches = new Map<string, PendingBatch>();
+
+function flushBatch(key: string): void {
+    const b = pendingBatches.get(key);
+    if (!b) {
+        return;
+    }
+    pendingBatches.delete(key);
+    const text = b.texts.length === 1 ? b.texts[0] : b.texts.map((t, i) => `[${i + 1}] ${t}`).join('\n');
+    postWebhook({ kind: b.kind, from: b.from, text, ts: Date.now(), batched: b.texts.length, ...b.extra });
 }
 
 /**
