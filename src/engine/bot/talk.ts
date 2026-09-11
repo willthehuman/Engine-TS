@@ -196,7 +196,11 @@ export class TalkRoutine implements Routine {
                 // NEVER dismiss-then-refire: closing kills the conversation and firing
                 // [opnpc1] restarts content from the opening menu (the Cook/Hans loops:
                 // every re-talk reset the menu, picks never advanced).
-                const alreadyOpen = currentDialog(p.resumeButtons);
+                // Require a genuinely PAUSED dialog script — the snapshot alone proves
+                // nothing (login and interfaces set hundreds of IfSetText, populating
+                // the capture with junk on a fresh boot: 2026-09-11).
+                const pausedDialog = p.activeScript !== null && (p.activeScript.execution === ScriptState.PAUSEBUTTON || p.activeScript.execution === ScriptState.COUNTDIALOG);
+                const alreadyOpen = pausedDialog ? currentDialog(p.resumeButtons) : null;
                 if (alreadyOpen && alreadyOpen.lines.length > 0) {
                     this.phase = Phase.DIALOG;
                     this.lastOptionTick = World.currentTick - 5; // act promptly
