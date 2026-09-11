@@ -6,7 +6,7 @@ import fastify from 'fastify';
 import { brain } from './bot.js';
 import { botLog } from './EventLog.js';
 import { Percept } from './Percept.js';
-import { compileGoal } from './goals.js';
+import { compileGoalVerbose, GOAL_FORMS } from './goals.js';
 import { CombatTrainRoutine } from './combat.js';
 import { InteractRoutine } from './interact.js';
 import { UseItemRoutine, inventorySnapshot, ItemOpRoutine } from './use_item.js';
@@ -434,12 +434,17 @@ export async function startBotHttp(): Promise<void> {
                 if (!steps.length) {
                     return { action, ok: false, reason: 'no_steps' };
                 }
-                const routines = compileGoal(steps);
+                const { routines, errors } = compileGoalVerbose(steps);
                 if (!routines.length) {
-                    return { action, ok: false, reason: 'unparseable' };
+                    return { action, ok: false, reason: 'unparseable', errors };
                 }
                 bot.setGoal(steps, routines);
-                return { action, ok: true, steps: steps.length };
+                // warnings ride along on success: the run self-corrects in-band,
+                // no extra reference fetch, no context bloat.
+                return errors.length ? { action, ok: true, steps: steps.length, warnings: errors } : { action, ok: true, steps: steps.length };
+            }
+            case 'goal_help': {
+                return { action, forms: GOAL_FORMS };
             }
             default:
                 return { error: 'unknown action' };

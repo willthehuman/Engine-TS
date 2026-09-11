@@ -3,7 +3,6 @@
 // compilation to steps is pure code. Steps run sequentially; a failed step
 // aborts the rest (Pepe goes back to wandering).
 
-import { botLog } from './EventLog.js';
 import { WalkRoutine, WaitRoutine, type Routine } from './routines.js';
 import { TalkRoutine } from './talk.js';
 import { CombatTrainRoutine } from './combat.js';
@@ -23,83 +22,140 @@ import { UseItemRoutine, ItemOpRoutine } from './use_item.js';
  *   item_op:<item>:<op>       — fire a held-item op instantly (Bury/Eat/Drop/light...)
  *   wait:<seconds>            — stand still
  */
-export function compileGoal(steps: string[]): Routine[] {
-    const queue: Routine[] = [];
-    for (const raw of steps.slice(0, 8)) {
-        const step = raw.trim().toLowerCase();
-        try {
-            if (step.startsWith('goto:')) {
-                const [x, z] = step.slice(5).split(',').map(Number);
-                if (Number.isInteger(x) && Number.isInteger(z)) {
-                    queue.push(new WalkRoutine(x, z));
-                    continue;
-                }
-            } else if (step.startsWith('find_npc:')) {
-                const name = raw.trim().slice(9).trim();
-                if (name.length > 0) {
-                    queue.push(new TalkRoutine(name));
-                    continue;
-                }
-            } else if (step.startsWith('train:')) {
-                const parts = step.slice(6).split(':');
-                const name = parts[0].trim();
-                const kills = parts.length > 1 ? Number(parts[1]) : 0;
-                if (name.length > 0) {
-                    queue.push(new CombatTrainRoutine(name, Number.isFinite(kills) && kills > 0 ? Math.round(kills) : 0));
-                    continue;
-                }
-            } else if (step.startsWith('interact:')) {
-                const rest = raw.trim().slice(9);
-                const ci = rest.indexOf(':');
-                const name = (ci === -1 ? rest : rest.slice(0, ci)).trim();
-                const opRaw = ci === -1 ? '1' : rest.slice(ci + 1).trim();
-                const op = /^\d+$/.test(opRaw) ? Number(opRaw) : opRaw.replace(/_/g, ' ');
-                if (name.length > 0) {
-                    queue.push(new InteractRoutine(name, op));
-                    continue;
-                }
-            } else if (step.startsWith('use:')) {
-                const rest = raw.trim().slice(4);
-                const pi = rest.indexOf('|');
-                if (pi > 0) {
-                    const item = rest.slice(0, pi).trim();
-                    const target = rest.slice(pi + 1).trim();
-                    if (item && target) {
-                        const ki = target.indexOf(':');
-                        if (ki > 0 && ['item', 'loc', 'npc', 'obj'].includes(target.slice(0, ki))) {
-                            queue.push(new UseItemRoutine(item, target.slice(0, ki) as 'item' | 'loc' | 'npc' | 'obj', target.slice(ki + 1)));
-                        } else {
-                            queue.push(new UseItemRoutine(item, 'item', target));
-                        }
-                        continue;
+/** Single-line DSL grammar. THE reference: errors and goal_help print this. */
+export const GOAL_FORMS = 'goto:x,z | find_npc:name | train:npc[:kills] | interact:target[:op] | use:item|target | item_op:item:op | wait:sec';
+
+const KNOWN_VERBS = ['goto', 'find_npc', 'train', 'interact', 'use', 'item_op', 'use_held', 'wait'];
+
+/** One-line correction for a bad step, or the bare grammar when nothing matches. */
+export function suggestStep(raw: string): string {
+    const step = raw.trim();
+    const ci = step.indexOf(':');
+    const verb = (ci === -1 ? step : step.slice(0, ci)).trim().toLowerCase();
+    const arg = (ci === -1 ? '' : step.slice(ci + 1)).trim();
+    if (KNOWN_VERBS.includes(verb)) {
+        // right verb, bad args (e.g. goto:Lumbridge bank)
+        if (verb === 'goto') {
+            return `"${step}" invalid — goto needs x,z tiles ("goto:3222,3216"); locate the place first`;
+        }
+        return `"${step}" invalid args — forms: ${GOAL_FORMS}`;
+    }
+    if (['talk', 'speak', 'chat', 'meet', 'visit'].includes(verb) && arg) {
+        return `"${step}" invalid — try "find_npc:${arg}"`;
+    }
+    if (['go', 'walk', 'move', 'run', 'travel', 'head'].includes(verb)) {
+        if (/^-?\d+\s*,\s*-?\d+$/.test(arg)) {
+            return `"${step}" invalid — try "goto:${arg.replace(/\s+/g, '')}"`;
+        }
+        return `"${step}" invalid — goto needs x,z tiles; locate the place first`;
+    }
+    if (['kill', 'attack', 'fight'].includes(verb) && arg) {
+        return `"${step}" invalid — try "train:${arg}"`;
+    }
+    if (['buy', 'sell', 'bank', 'cook', 'mine', 'chop', 'fish', 'open', 'take'].includes(verb)) {
+        return `"${step}" invalid — try "interact:${arg || step}"`;
+    }
+    return `"${step}" invalid — forms: ${GOAL_FORMS}`;
+}
+
+export interface CompiledGoal {
+    routines: Routine[];
+    /** Compact, capped (3 + overflow count). Empty when all steps parsed. */
+    errors: string[];
+}
+
+/** Verbose compile: routines + terse per-step diagnostics. */
+/** Parse one step; null when invalid (caller reports via suggestStep). */
+function parseStep(raw: string): Routine | null {
+    const step = raw.trim().toLowerCase();
+    try {
+        if (step.startsWith('goto:')) {
+            const [x, z] = step.slice(5).split(',').map(Number);
+            if (Number.isInteger(x) && Number.isInteger(z)) {
+                return new WalkRoutine(x, z);
+            }
+        } else if (step.startsWith('find_npc:')) {
+            const name = raw.trim().slice(9).trim();
+            if (name.length > 0) {
+                return new TalkRoutine(name);
+            }
+        } else if (step.startsWith('train:')) {
+            const parts = step.slice(6).split(':');
+            const name = parts[0].trim();
+            const kills = parts.length > 1 ? Number(parts[1]) : 0;
+            if (name.length > 0) {
+                return new CombatTrainRoutine(name, Number.isFinite(kills) && kills > 0 ? Math.round(kills) : 0);
+            }
+        } else if (step.startsWith('interact:')) {
+            const rest = raw.trim().slice(9);
+            const ci = rest.indexOf(':');
+            const name = (ci === -1 ? rest : rest.slice(0, ci)).trim();
+            const opRaw = ci === -1 ? '1' : rest.slice(ci + 1).trim();
+            const op = /^\d+$/.test(opRaw) ? Number(opRaw) : opRaw.replace(/_/g, ' ');
+            if (name.length > 0) {
+                return new InteractRoutine(name, op);
+            }
+        } else if (step.startsWith('use:')) {
+            const rest = raw.trim().slice(4);
+            const pi = rest.indexOf('|');
+            if (pi > 0) {
+                const item = rest.slice(0, pi).trim();
+                const target = rest.slice(pi + 1).trim();
+                if (item && target) {
+                    const ki = target.indexOf(':');
+                    if (ki > 0 && ['item', 'loc', 'npc', 'obj'].includes(target.slice(0, ki))) {
+                        return new UseItemRoutine(item, target.slice(0, ki) as 'item' | 'loc' | 'npc' | 'obj', target.slice(ki + 1));
                     }
-                }
-            } else if (step.startsWith('item_op:') || step.startsWith('use_held:')) {
-                // item_op:<item>:<op> — fire a held-item op (Bury/Eat/Drop...) instantly
-                const rest = raw.trim().slice(step.startsWith('item_op:') ? 8 : 9);
-                const ci = rest.indexOf(':');
-                if (ci > 0) {
-                    const item = rest.slice(0, ci).trim();
-                    const op = rest
-                        .slice(ci + 1)
-                        .trim()
-                        .replace(/_/g, ' ');
-                    if (item && op) {
-                        queue.push(new ItemOpRoutine(item, op));
-                        continue;
-                    }
-                }
-            } else if (step.startsWith('wait:')) {
-                const secs = Number(step.slice(5));
-                if (Number.isFinite(secs) && secs > 0 && secs <= 300) {
-                    queue.push(new WaitRoutine(Math.round(secs * 1.67)));
-                    continue;
+                    return new UseItemRoutine(item, 'item', target);
                 }
             }
-        } catch {
-            // fall through: invalid step skipped
+        } else if (step.startsWith('item_op:') || step.startsWith('use_held:')) {
+            const rest = raw.trim().slice(step.startsWith('item_op:') ? 8 : 9);
+            const ci = rest.indexOf(':');
+            if (ci > 0) {
+                const item = rest.slice(0, ci).trim();
+                const op = rest
+                    .slice(ci + 1)
+                    .trim()
+                    .replace(/_/g, ' ');
+                if (item && op) {
+                    return new ItemOpRoutine(item, op);
+                }
+            }
+        } else if (step.startsWith('wait:')) {
+            const secs = Number(step.slice(5));
+            if (Number.isFinite(secs) && secs > 0 && secs <= 300) {
+                return new WaitRoutine(Math.round(secs * 1.67));
+            }
         }
-        botLog.append('error', { where: 'compileGoal', step: raw, reason: 'unparseable' });
+    } catch {
+        return null;
     }
-    return queue;
+    return null;
+}
+
+/** Verbose compile: routines + terse per-step diagnostics (capped). No botLog spam. */
+export function compileGoalVerbose(steps: string[]): CompiledGoal {
+    const routines: Routine[] = [];
+    const errors: string[] = [];
+    let bad = 0;
+    for (const raw of steps.slice(0, 8)) {
+        const r = parseStep(raw);
+        if (r) {
+            routines.push(r);
+            continue;
+        }
+        bad++;
+        if (errors.length < 3) {
+            errors.push(suggestStep(raw));
+        }
+    }
+    if (bad > errors.length) {
+        errors.push(`(+${bad - errors.length} more bad steps)`);
+    }
+    return { routines, errors };
+}
+
+export function compileGoal(steps: string[]): Routine[] {
+    return compileGoalVerbose(steps).routines;
 }
