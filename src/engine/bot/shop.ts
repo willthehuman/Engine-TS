@@ -10,7 +10,7 @@
 // action — adding a shop never requires code.
 
 import World from '#/engine/World.js';
-import InvType from '#/cache/config/InvType.js';
+import ObjType from '#/cache/config/ObjType.js';
 import InvButton from '#/network/game/client/model/InvButton.js';
 import InvButtonHandler from '#/network/game/client/handler/InvButtonHandler.js';
 import { readFileSync, existsSync, writeFileSync } from 'node:fs';
@@ -173,7 +173,7 @@ export class BuyRoutine implements Routine {
                     const item = st.inv.get(slot);
                     if (!item || item.id <= 0) continue;
                     const id = item.id;
-                    const name = InvType.get(id)?.debugname?.toLowerCase() ?? '';
+                    const name = ObjType.get(id)?.name?.toLowerCase() ?? '';
                     if (name.includes(this.itemQuery)) {
                         this.buySlot = slot;
                         this.buyObj = id;
