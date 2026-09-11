@@ -11,6 +11,7 @@
 
 import World from '#/engine/World.js';
 import ObjType from '#/cache/config/ObjType.js';
+import InvType from '#/cache/config/InvType.js';
 import InvButton from '#/network/game/client/model/InvButton.js';
 import InvButtonHandler from '#/network/game/client/handler/InvButtonHandler.js';
 import { readFileSync, existsSync, writeFileSync } from 'node:fs';
@@ -189,6 +190,10 @@ export class BuyRoutine implements Routine {
                 if (this.buyTicks > 60) {
                     return this.abort('buy_failed', { item: this.itemQuery, note: 'no coins / out of stock / full inv?' });
                 }
+                const coins = this.countCoins(bot);
+                if (coins <= 0) {
+                    return this.abort('need_coins', { item: this.itemQuery, coins });
+                }
                 const st = stockInv(bot, this.COM);
                 if (!st) {
                     return this.abort('shop_closed', { item: this.itemQuery });
@@ -214,6 +219,18 @@ export class BuyRoutine implements Routine {
 
     private stepWait(bot: BotPlayer): boolean {
         return inventorySnapshot(bot).some(i => i.name.toLowerCase().includes(this.itemQuery));
+    }
+
+    /** Coin count in the player's main inventory (object id 995). */
+    private countCoins(bot: BotPlayer): number {
+        const inv = bot.player.getInventory(InvType.INV);
+        if (!inv) return 0;
+        let total = 0;
+        for (let slot = 0; slot < inv.capacity; slot++) {
+            const item = inv.get(slot);
+            if (item && item.id === 995) total += item.count;
+        }
+        return total;
     }
 
     private resolveShopDef(bot: BotPlayer): ShopDef | null {
