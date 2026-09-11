@@ -94,7 +94,8 @@ export async function startBotHttp(): Promise<void> {
         ];
         snap.skills = {};
         for (let si = 0; si < SKILL_NAMES.length && si < pp.levels.length; si++) {
-            (snap.skills as Record<string, unknown>)[SKILL_NAMES[si]] = { level: pp.levels[si], xp: pp.stats[si] };
+            // baseLevels = true level; levels[] is the drainable current level
+            (snap.skills as Record<string, unknown>)[SKILL_NAMES[si]] = { level: pp.baseLevels[si], xp: pp.stats[si] };
         }
         return snap;
     });
