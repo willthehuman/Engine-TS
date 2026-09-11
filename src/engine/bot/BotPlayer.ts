@@ -479,7 +479,8 @@ export class BotPlayer {
                 if (!name.includes('door') && !name.includes('gate')) continue;
                 const d = Math.max(Math.abs(loc.x - p.x), Math.abs(loc.z - p.z));
                 if (d > 14 || d >= bestDist) continue;
-                const op = resolveOp({ op: lt?.op ?? [] }, 'open');
+                const ops = { op: lt?.op ?? [] };
+                const op = resolveOp(ops, 'open') ?? resolveOp(ops, 1); // first visible op fallback
                 if (!op) continue;
                 best = { x: loc.x, z: loc.z, type: loc.type, level: loc.level, opIndex: op.index };
                 bestDist = d;

@@ -19,6 +19,9 @@
 //   gather fails fast with need_tool so the planner can add a buy milestone.
 
 import World from '#/engine/World.js';
+import NpcType from '#/cache/config/NpcType.js';
+import ScriptProvider from '#/engine/script/ScriptProvider.js';
+import ScriptRunner from '#/engine/script/ScriptRunner.js';
 import { Interaction } from '#/engine/entity/Interaction.js';
 import ServerTriggerType from '#/engine/script/ServerTriggerType.js';
 import { botLog } from './EventLog.js';
@@ -133,10 +136,31 @@ export class GatherRoutine implements Routine {
         return 'aborted';
     }
 
+    private probeTick = 0;
+    private engagedAt = -1;
+
     step(bot: BotPlayer): RoutineStatus {
         const p = bot.player;
         if (!this.src) {
             return this.abort('unknown_item', { known: gatherItems().join(',') });
+        }
+        // eyes-inside probe (30s cadence): routine state for remote diagnosis
+        if (World.currentTick - this.probeTick > 50) {
+            this.probeTick = World.currentTick;
+            const near = findTarget(bot, this.src.query, this.src.op, [this.src.kind] as any);
+            botLog.append('action', {
+                action: 'gather_probe',
+                item: this.item,
+                phase: this.phase,
+                walked: this.walked,
+                at: `${p.x},${p.z}`,
+                target: this.target ? `${this.target.name}@${this.target.x},${this.target.z}` : null,
+                nearDist: near ? Math.max(Math.abs(near.x - p.x), Math.abs(near.z - p.z)) : null,
+                interaction: (p as any).hasInteraction ? (p as any).hasInteraction() : '?',
+                waypoints: (p as any).hasWaypoints ? (p as any).hasWaypoints() : '?',
+                kills: this.kills,
+                tick: World.currentTick
+            });
         }
         if (this.startedAt === 0) {
             this.startedAt = World.currentTick;
@@ -218,36 +242,53 @@ export class GatherRoutine implements Routine {
         const p = bot.player;
         const src = this.src;
 
-        // Ground drop within scan range? Switch to pickup.
+        // 1) Ground drop NEARBY? Switch to pickup. (A far drop on the other
+        //    side of a fence/castle must not hijack the hunt.)
         const drop = findTarget(bot, this.item, 'take', ['obj']);
-        if (drop) {
+        if (drop && Math.max(Math.abs(drop.x - p.x), Math.abs(drop.z - p.z)) <= this.DROP_SCAN_RANGE) {
+            botLog.append('action', { action: 'gather_drop_seen', item: this.item, at: `${drop.x},${drop.z}` });
             this.target = drop;
             this.phase = Phase.PICKUP;
             return 'running';
         }
 
-        // Kills exhausted?
+        // 2) Kills exhausted?
         if (this.kills >= (src.kills ?? 12)) {
             return this.abort('no_drop', { kills: this.kills });
         }
 
-        // Re-find a live source NPC periodically (or when target vanished).
+        // 3) Target liveness / re-find (count the kill when the held target dies)
         if (!this.target || !this.targetAlive()) {
+            if (this.target) {
+                this.kills++;
+                botLog.append('action', { action: 'gather_kill', item: this.item, npc: this.target.name, kills: this.kills });
+            }
             const t = findTarget(bot, src.query, src.op, [src.kind]);
             if (!t) {
                 return this.abort('no_source', { query: src.query, kills: this.kills });
             }
             this.target = t;
+            this.engagedAt = -1;
         }
         const t = this.target;
         const dist = Math.max(Math.abs(t.x - p.x), Math.abs(t.z - p.z));
 
+        // 4) One target for ~3 min without a kill — give up and re-find
+        //    (checked even while an interaction holds)
+        if (this.engagedAt > 0 && World.currentTick - this.engagedAt > 300) {
+            botLog.append('action', { action: 'approach_retry', why: 'no_kill', query: src.query });
+            this.target = null;
+            this.engagedAt = -1;
+            return 'running';
+        }
+
+        // 5) Approach
         if (dist > 1) {
             p.clearInteraction();
             if (p.x === this.lastPos.x && p.z === this.lastPos.z) {
                 this.idleTicks++;
                 if (this.idleTicks > 40) {
-                    this.target = null; // stuck — re-find (may have moved)
+                    this.target = null;
                     this.idleTicks = 0;
                     return 'running';
                 }
@@ -271,29 +312,30 @@ export class GatherRoutine implements Routine {
             return 'running';
         }
 
-        // Adjacent: fire the op.
-        if (p.hasInteraction()) {
-            return 'running'; // engine is holding the previous op
+        // 6) Attack. CombatTrainRoutine discipline: re-fire when the swing
+        //    timer (vars[58]) is ready EVEN IF the interaction still holds —
+        //    waiting for the hold to clear freezes the melee loop. The op
+        //    script must also be run directly ([opnpcN] starts the loop).
+        const ready = World.currentTick >= p.vars[58];
+        if (!p.hasInteraction() || ready) {
+            p.clearWaypoints();
+            const trigger = this.triggerFor(t);
+            if (p.setInteraction(Interaction.ENGINE, t.entity() as any, trigger)) {
+                p.opcalled = true;
+                this.engagedAt = World.currentTick;
+                botLog.append('action', { action: 'gather_interact', item: this.item, target: t.name, op: t.opName });
+                if (t.kind === 'npc') {
+                    const npc = t.entity() as any;
+                    const opScript = ScriptProvider.getByTrigger(ServerTriggerType.OPNPC1 + (t.opIndex - 1), NpcType.get(npc.type).id, NpcType.get(npc.type).category);
+                    if (opScript) {
+                        p.runScript(ScriptRunner.init(opScript, p, npc), true);
+                    }
+                }
+            }
         }
-        p.clearWaypoints();
-        const trigger = this.triggerFor(t);
-        if (p.setInteraction(Interaction.ENGINE, t.entity() as any, trigger)) {
-            p.opcalled = true;
-            botLog.append('action', { action: 'gather_interact', item: this.item, target: t.name, op: t.opName });
-        }
-        this.idleTicks = 0;
-
-        // Did this exchange produce the item? (effect check)
         if (inventorySnapshot(bot).some(i => i.name.toLowerCase() === this.item)) {
             botLog.append('action', { action: 'gather_done', item: this.item, source: 'interact' });
             return 'done';
-        }
-        // NPC dead? count the kill.
-        const npc = (t as any).entity?.();
-        if (npc && npc.levels && npc.levels[3] <= 0) {
-            this.kills++;
-            botLog.append('action', { action: 'gather_kill', item: this.item, npc: t.name, kills: this.kills });
-            this.target = null;
         }
         return 'running';
     }
