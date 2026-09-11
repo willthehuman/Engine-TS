@@ -46,7 +46,7 @@ const BUILTIN_SOURCES: Record<string, GatherSource> = {
         query: 'Chicken',
         op: 'attack',
         area: { x: 3191, z: 3276 },
-        kills: 12
+        kills: 25
     }
     // milk / flour land here together with the shop-buy routine (tools:
     // bucket_empty / pot_empty at Lumbridge General Store).
