@@ -34,7 +34,10 @@ export class WalkRoutine implements Routine {
 
     step(bot: BotPlayer): RoutineStatus {
         const p = bot.player;
-        if (p.x === this.destX && p.z === this.destZ) {
+        // Adjacent counts as arrived: goto targets are often LOC tiles (trees,
+        // objects) you cannot stand ON — parking next to them IS the arrival
+        // (2026-09-11: soul's goto:tree x,y froze WalkRoutine 17 min).
+        if (Math.max(Math.abs(p.x - this.destX), Math.abs(p.z - this.destZ)) <= 1) {
             return 'done';
         }
 
