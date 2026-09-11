@@ -50,6 +50,13 @@ const matches = (needle: string, ...cands: (string | null | undefined)[]): boole
         return lc === needle || lc.includes(needle);
     });
 
+/** Exact name match (avoids "door" hitting "Trapdoor"). Null when none exact. */
+const matchesExact = (needle: string, ...cands: (string | null | undefined)[]): boolean =>
+    cands.some(c => {
+        if (!c) return false;
+        return c.toLowerCase() === needle;
+    });
+
 /** List ops (right-click menu) for a type, skipping 'hidden'. */
 function opsFor(type: OpLikeType): { index: number; name: string }[] {
     const out: { index: number; name: string }[] = [];
@@ -72,17 +79,23 @@ export function resolveOp(type: OpLikeType, op: string | number): { index: numbe
     return ops.find(o => o.name.toLowerCase() === q) ?? ops.find(o => o.name.toLowerCase().includes(q)) ?? null;
 }
 
-/** Find the nearest matching entity across the requested kinds (nearest wins). */
+/** Find the nearest matching entity across the requested kinds (nearest wins).
+ * Exact name matches beat substring matches ("door" must not resolve Trapdoor). */
 export function findTarget(bot: BotPlayer, query: string, op: string | number, kinds: InteractKind[] = ['npc', 'loc', 'obj']): InteractTarget | null {
+    return scanTargets(bot, query, op, kinds, true) ?? scanTargets(bot, query, op, kinds, false);
+}
+
+function scanTargets(bot: BotPlayer, query: string, op: string | number, kinds: InteractKind[], exact: boolean): InteractTarget | null {
     const p = bot.player;
     const q = query.trim().toLowerCase();
+    const hit = (...cands: (string | null | undefined)[]): boolean => (exact ? matchesExact(q, ...cands) : matches(q, ...cands));
     let best: InteractTarget | null = null;
     let bestDist = Infinity;
 
     if (kinds.includes('npc')) {
         for (const npc of World.npcs) {
             const nt = NpcType.get(npc.type);
-            if (!matches(q, nt?.name, nt?.debugname)) continue;
+            if (!hit(nt?.name, nt?.debugname)) continue;
             if (npc.level !== p.level) continue;
             if (npc.levels[3] <= 0) continue; // corpse: never target the dying
             const dist = Math.max(Math.abs(npc.x - p.x), Math.abs(npc.z - p.z));
@@ -99,7 +112,7 @@ export function findTarget(bot: BotPlayer, query: string, op: string | number, k
         for (const zone of World.gameMap.allZones()) {
             for (const loc of zone.getAllLocsSafe()) {
                 const lt = LocType.get(loc.type);
-                if (!matches(q, lt?.name, lt?.debugname)) continue;
+                if (!hit(lt?.name, lt?.debugname)) continue;
                 if (loc.level !== p.level) continue;
                 const dist = Math.max(Math.abs(loc.x - p.x), Math.abs(loc.z - p.z));
                 if (dist < bestDist) {
@@ -116,7 +129,7 @@ export function findTarget(bot: BotPlayer, query: string, op: string | number, k
         for (const zone of World.gameMap.allZones()) {
             for (const obj of zone.getAllObjsSafe()) {
                 const ot = ObjType.get(obj.type);
-                if (!matches(q, ot?.name, ot?.debugname)) continue;
+                if (!hit(ot?.name, ot?.debugname)) continue;
                 if (obj.level !== p.level) continue;
                 const dist = Math.max(Math.abs(obj.x - p.x), Math.abs(obj.z - p.z));
                 if (dist < bestDist) {
@@ -349,7 +362,9 @@ export class InteractRoutine implements Routine {
             }
             case Phase.FIRE: {
                 const t = this.target!;
-                if (!this.stillValid(p)) {
+                // NOTE: locs skip re-validation here — firing an op like Open/Cut
+                // often swaps the loc's type id, which must NOT read as "vanished"
+                if (t.kind !== 'loc' && !this.stillValid(p)) {
                     this.phase = Phase.FIND;
                     return 'running';
                 }

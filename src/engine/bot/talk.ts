@@ -16,7 +16,9 @@ import { botLog } from './EventLog.js';
 import type { BotPlayer } from './BotPlayer.js';
 import type { Routine } from './routines.js';
 import { currentDialog, wasUnreachable, clearDialogFlags, requestDialogChoice, consumeDialogChoice, clearDialogChoice } from './dialog.js';
-import { soulRoutingEnabled, forwardNotice } from './webhook.js';
+import { soulRoutingEnabled, forwardNotice, noticesMuted } from './webhook.js';
+import ScriptProvider from '#/engine/script/ScriptProvider.js';
+import ScriptRunner from '#/engine/script/ScriptRunner.js';
 import { findPath } from '#/engine/GameMap.js';
 
 enum Phase {
@@ -25,6 +27,33 @@ enum Phase {
     TALK,
     DIALOG,
     DONE
+}
+
+/**
+ * Path to stand adjacent to (tx,tz): tries the tile itself, then neighbors by
+ * closeness to the walker. NPC/object tiles are often collision-blocked while
+ * a neighbor works fine. Returns the waypoint path or null.
+ */
+export function standPath(level: number, fx: number, fz: number, tx: number, tz: number): number[] | null {
+    const direct = findPath(level, fx, fz, tx, tz);
+    if (direct.length > 0) {
+        return Array.from(direct);
+    }
+    const nbs: { x: number; z: number; d: number }[] = [];
+    for (let ax = -1; ax <= 1; ax++) {
+        for (let az = -1; az <= 1; az++) {
+            if (ax === 0 && az === 0) continue;
+            nbs.push({ x: tx + ax, z: tz + az, d: Math.max(Math.abs(fx - (tx + ax)), Math.abs(fz - (tz + az))) });
+        }
+    }
+    nbs.sort((a, b) => a.d - b.d);
+    for (const n of nbs) {
+        const path = findPath(level, fx, fz, n.x, n.z);
+        if (path.length > 0) {
+            return Array.from(path);
+        }
+    }
+    return null;
 }
 
 export class TalkRoutine implements Routine {
@@ -41,6 +70,7 @@ export class TalkRoutine implements Routine {
     private approachStuck = 0;
     private lastNpcX = -1;
     private lastNpcZ = -1;
+    private lastRepathTick = -1000;
     private choiceAskedAt = -1000;
     private talkRetries = 0;
     private readonly MAX_OPTIONS = 12; // hard cap: never loop a dialog forever
@@ -91,10 +121,12 @@ export class TalkRoutine implements Routine {
                 }
                 candidates.sort((a, b) => a.dist - b.dist);
 
-                // pick the nearest candidate we can actually reach (path test)
+                // pick the nearest candidate we can actually stand next to (path
+                // test to the npc tile OR an adjacent tile — npc tiles are often
+                // collision-blocked, and talking works fine from adjacent)
                 let best: Npc | null = null;
                 for (const c of candidates) {
-                    if (findPath(p.level, p.x, p.z, c.npc.x, c.npc.z).length > 0) {
+                    if (standPath(p.level, p.x, p.z, c.npc.x, c.npc.z) !== null) {
                         best = c.npc;
                         break;
                     }
@@ -116,22 +148,28 @@ export class TalkRoutine implements Routine {
                 }
                 const dx = npc.x - p.x;
                 const dz = npc.z - p.z;
-                const dist = Math.sqrt(dx * dx + dz * dz);
-                if (dist <= 2.5) {
+                // chebyshev near-adjacency: the op trigger is fired directly (not
+                // via engine approach), so ≤2 is enough — content gates the rest.
+                // (Pacing NPCs like Cook never stand still for a ≤1 handoff.)
+                if (Math.max(Math.abs(dx), Math.abs(dz)) <= 2) {
                     this.phase = Phase.TALK;
                     return 'running';
                 }
                 // walk with the SMART pathfinder (the engine's naive pathToPathingTarget
-                // stalls on obstacles; we only set the interaction once genuinely close)
-                if (!p.hasWaypoints() || npc.x !== this.lastNpcX || npc.z !== this.lastNpcZ) {
-                    const path = findPath(p.level, p.x, p.z, npc.x, npc.z);
-                    if (path.length === 0) {
+                // stalls on obstacles; we only set the interaction once genuinely close).
+                // Re-path ONLY on exhausted waypoints: re-queueing every NPC step
+                // resets movement progress and makes Pepe crawl behind pacing NPCs.
+                // A slow refresh (20 ticks) covers genuine relocation.
+                if (!p.hasWaypoints() || World.currentTick - this.lastRepathTick > 20) {
+                    const path = standPath(p.level, p.x, p.z, npc.x, npc.z);
+                    if (!path) {
                         botLog.append('reflex', { kind: 'talk_aborted', npc: this.npcName, reason: 'no_path' });
                         return 'aborted';
                     }
                     p.queueWaypoints(path);
                     this.lastNpcX = npc.x;
                     this.lastNpcZ = npc.z;
+                    this.lastRepathTick = World.currentTick;
                 }
                 // stuck detection: same tile while walking for 30s → abort
                 if (p.x === this.lastApproachX && p.z === this.lastApproachZ) {
@@ -173,6 +211,19 @@ export class TalkRoutine implements Routine {
                 }
                 this.talkRetries = 0;
                 p.opcalled = true;
+                p.clearWaypoints(); // adjacent already — make the engine try the trigger in place, not wander
+                // Fire the op trigger directly (same mechanism as combat): the engine's
+                // naive approach-walk stalls on counters and pacing NPCs drift out of
+                // reach between ticks. Content gates everything itself.
+                const opScript = ScriptProvider.getByTrigger(ServerTriggerType.OPNPC1, NpcType.get(npc.type).id, NpcType.get(npc.type).category);
+                if (opScript) {
+                    // executeScript (not runScript): a suspending dialog must attach
+                    // as activeScript or DIALOG can never resume it
+                    p.executeScript(ScriptRunner.init(opScript, p, npc), true);
+                    botLog.append('action', { action: 'talk_fire', npc: this.npcName, dist: Math.max(Math.abs(npc.x - p.x), Math.abs(npc.z - p.z)) });
+                } else {
+                    botLog.append('action', { action: 'talk_fire', npc: this.npcName, st: 'no_script' });
+                }
                 this.phase = Phase.DIALOG;
                 this.lastOptionTick = World.currentTick;
                 this.talkedAtTick = World.currentTick;
@@ -187,6 +238,13 @@ export class TalkRoutine implements Routine {
                     if (this.sawDialog || this.optionsPicked > 0) {
                         bot.saveNow(); // persist progress (e.g. tutorial skip) immediately
                         return 'done'; // conversation finished/closed
+                    }
+                    // hold position while adjacent: don't let the engine's naive
+                    // walking drag Pepe off while the talk script starts
+                    const ndx = this.npc ? Math.abs(this.npc.x - p.x) : 99;
+                    const ndz = this.npc ? Math.abs(this.npc.z - p.z) : 99;
+                    if (Math.max(ndx, ndz) <= 1 && p.hasWaypoints()) {
+                        p.clearWaypoints();
                     }
                     // grace period right after talking: script may still be starting
                     if (World.currentTick - this.talkedAtTick < 15) {
@@ -244,7 +302,7 @@ export class TalkRoutine implements Routine {
                 // to the Hermes agent (questing unlock). Timeout falls back to the
                 // deterministic first option so dialogs never stall.
                 let option = dlg.options[0];
-                if (soulRoutingEnabled()) {
+                if (soulRoutingEnabled() && !noticesMuted()) {
                     const sig = this.npcName + '|' + dlg.options.map(o => o.comId).join(',');
                     if (requestDialogChoice(sig)) {
                         this.choiceAskedAt = World.currentTick;

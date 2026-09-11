@@ -9,14 +9,26 @@
 // with X-Webhook-Timestamp (integer seconds).
 
 import crypto from 'crypto';
+import fs from 'fs';
 
 import { botLog } from './EventLog.js';
 
 const URL = (process.env.PEPE_WEBHOOK_URL ?? '').trim();
 const SECRET = (process.env.PEPE_WEBHOOK_SECRET ?? '').trim();
+// test-harness mute: touch D:\lostcity\.nostrategist to silence soul wakes
+// (notices) during manual mechanics tests without touching chat/PM routing.
+const MUTE_FILE = 'D:/lostcity/.nostrategist';
 
 export function soulRoutingEnabled(): boolean {
     return URL.length > 0 && SECRET.length > 0;
+}
+
+export function noticesMuted(): boolean {
+    try {
+        return fs.existsSync(MUTE_FILE);
+    } catch {
+        return false;
+    }
 }
 
 export function forwardIngameEvent(kind: 'pm' | 'chat', from: string, text: string, extra: Record<string, unknown> = {}): void {

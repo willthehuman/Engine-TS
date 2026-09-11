@@ -7,7 +7,7 @@ import { botLog } from './EventLog.js';
 import { Percept } from './Percept.js';
 import { WanderRoutine } from './routines.js';
 import { maybeDecide } from './decide.js';
-import { forwardNotice, soulRoutingEnabled, summarizeNotable } from './webhook.js';
+import { forwardNotice, soulRoutingEnabled, summarizeNotable, noticesMuted } from './webhook.js';
 import type { BotPlayer } from './BotPlayer.js';
 
 const SKILL_NAMES = ['attack', 'defence', 'strength', 'hitpoints', 'ranged', 'prayer', 'magic', 'cooking', 'woodcutting', 'fletching', 'fishing', 'firemaking', 'crafting', 'smithing', 'mining', 'herblore', 'agility', 'thieving'];
@@ -56,7 +56,7 @@ export class Brain {
             }
             this.lastBase.set(name, cur);
         }
-        if (!soulRoutingEnabled()) {
+        if (!soulRoutingEnabled() || noticesMuted()) {
             // still advance the cursor so a later enable doesn't replay history
             const tail = botLog.tail(null, 1);
             if (tail.length > 0) {

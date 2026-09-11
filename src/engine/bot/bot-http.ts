@@ -13,6 +13,7 @@ import { UseItemRoutine, inventorySnapshot, ItemOpRoutine } from './use_item.js'
 import { currentDialog, resetDialog } from './dialog.js';
 import { resolveDialogChoice, dialogChoicePending } from './dialog.js';
 import ScriptState from '#/engine/script/ScriptState.js';
+import { findPath } from '#/engine/GameMap.js';
 import World from '#/engine/World.js';
 import NpcType from '#/cache/config/NpcType.js';
 import LocType from '#/cache/config/LocType.js';
@@ -259,6 +260,48 @@ export async function startBotHttp(): Promise<void> {
                 lastCom: bot.player.lastCom
             }
         };
+    });
+
+    app.get('/route', async req => {
+        // pathing probe: can Pepe walk to x,z? Returns staged-hop breakdown so
+        // callers (soul included) can see WHERE a route breaks, not just that it does.
+        const bot = getBot();
+        if (!bot) {
+            return { error: 'no bot attached' };
+        }
+        const q = req.query as Record<string, string>;
+        const x = Number(q.x);
+        const z = Number(q.z);
+        if (!Number.isInteger(x) || !Number.isInteger(z)) {
+            return { error: 'need integer x,z' };
+        }
+        const p = bot.player;
+        const legs: { from: [number, number]; to: [number, number]; steps: number; ok: boolean }[] = [];
+        let cx = p.x;
+        let cz = p.z;
+        for (let i = 0; i < 8; i++) {
+            const dx = x - cx;
+            const dz = z - cz;
+            const dist = Math.max(Math.abs(dx), Math.abs(dz));
+            if (dist === 0) {
+                break;
+            }
+            const seg = Math.min(40, dist);
+            const s = seg / dist;
+            const tx = cx + Math.round(dx * s);
+            const tz = cz + Math.round(dz * s);
+            const path = findPath(p.level, cx, cz, tx, tz);
+            const ok = !!path && path.length > 0;
+            legs.push({ from: [cx, cz], to: [tx, tz], steps: ok ? path.length : 0, ok });
+            if (!ok) {
+                break;
+            }
+            // advance along the interpolated line (approximation of staged walking)
+            cx = tx;
+            cz = tz;
+        }
+        const reached = legs.length > 0 && legs[legs.length - 1].ok && legs[legs.length - 1].to[0] === x && legs[legs.length - 1].to[1] === z;
+        return { from: { x: p.x, z: p.z }, to: { x, z }, reached, legs };
     });
 
     app.get('/inventory', async () => {
