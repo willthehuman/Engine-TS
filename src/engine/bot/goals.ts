@@ -9,6 +9,8 @@ import { CombatTrainRoutine } from './combat.js';
 import { InteractRoutine } from './interact.js';
 import { UseItemRoutine, ItemOpRoutine } from './use_item.js';
 import { GatherRoutine, gatherItems } from './gather.js';
+import { BuyRoutine, shopNames } from './shop.js';
+import { PlanRoutine, planNames } from './plans.js';
 
 /**
  * Accepted step forms:
@@ -25,11 +27,13 @@ import { GatherRoutine, gatherItems } from './gather.js';
  *   gather:<item>             — effect-verified gathering from the known source
  *                               (egg; milk/flour once shop-buy lands). Sources
  *                               are data, see data/bot_sources.json.
+ *   buy:<item>[:@<shop>]      — buy one unit from a shop (data/bot_shops.json)
+ *   plan:<name>               — run a named multi-step plan (data/bot_plans.json)
  */
 /** Single-line DSL grammar. THE reference: errors and goal_help print this. */
-export const GOAL_FORMS = 'goto:x,z | find_npc:name | train:npc[:kills] | interact:target[:op] | use:item|target | item_op:item:op | wait:sec | gather:item';
+export const GOAL_FORMS = 'goto:x,z | find_npc:name | train:npc[:kills] | interact:target[:op] | use:item|target | item_op:item:op | wait:sec | gather:item | buy:item[@shop] | plan:name';
 
-const KNOWN_VERBS = ['goto', 'find_npc', 'train', 'interact', 'use', 'item_op', 'use_held', 'wait', 'gather'];
+const KNOWN_VERBS = ['goto', 'find_npc', 'train', 'interact', 'use', 'item_op', 'use_held', 'wait', 'gather', 'buy', 'plan'];
 
 /** One-line correction for a bad step, or the bare grammar when nothing matches. */
 export function suggestStep(raw: string): string {
@@ -62,6 +66,13 @@ export function suggestStep(raw: string): string {
     if (verb === 'gather') {
         const known = gatherItems().join('|');
         return arg ? `"${step}" invalid — unknown item; can gather: ${known}` : `"${step}" invalid — needs an item (gather:egg)`;
+    }
+    if (verb === 'buy') {
+        return arg ? `"${step}" invalid args — forms: buy:item@shop (known shops: ${shopNames().join('|') || 'none yet'})` : `"${step}" invalid — needs an item (buy:pot)`;
+    }
+    if (verb === 'plan') {
+        const known = planNames().join('|');
+        return arg ? `"${step}" invalid — unknown plan; known: ${known || 'none yet'}` : `"${step}" invalid — needs a plan name`;
     }
     return `"${step}" invalid — forms: ${GOAL_FORMS}`;
 }
@@ -139,6 +150,19 @@ function parseStep(raw: string): Routine | null {
             const item = raw.trim().slice(7).trim();
             if (item.length > 0) {
                 return new GatherRoutine(item);
+            }
+        } else if (step.startsWith('buy:')) {
+            const rest = raw.trim().slice(4).trim();
+            const at = rest.indexOf('@');
+            const item = (at === -1 ? rest : rest.slice(0, at)).trim();
+            const shop = at === -1 ? '' : rest.slice(at + 1).trim();
+            if (item.length > 0) {
+                return new BuyRoutine(item, shop);
+            }
+        } else if (step.startsWith('plan:')) {
+            const name = raw.trim().slice(5).trim();
+            if (name.length > 0) {
+                return new PlanRoutine(name);
             }
         }
     } catch {

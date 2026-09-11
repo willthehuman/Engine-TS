@@ -8,6 +8,8 @@ import { botLog } from './EventLog.js';
 import { Percept } from './Percept.js';
 import { compileGoalVerbose, GOAL_FORMS } from './goals.js';
 import { learnSource, gatherItems } from './gather.js';
+import { learnShop, shopNames } from './shop.js';
+import { learnPlan, planNames } from './plans.js';
 import { CombatTrainRoutine } from './combat.js';
 import { InteractRoutine } from './interact.js';
 import { UseItemRoutine, inventorySnapshot, ItemOpRoutine } from './use_item.js';
@@ -446,7 +448,25 @@ export async function startBotHttp(): Promise<void> {
                 return errors.length ? { action, ok: true, steps: steps.length, warnings: errors } : { action, ok: true, steps: steps.length };
             }
             case 'goal_help': {
-                return { action, forms: GOAL_FORMS, gather: gatherItems() };
+                return { action, forms: GOAL_FORMS, gather: gatherItems(), shops: shopNames(), plans: planNames() };
+            }
+            case 'learn_shop': {
+                const name = typeof args.name === 'string' ? args.name : '';
+                const def = args.def as { npc?: string; op?: string | number; com?: number } | undefined;
+                if (!name || !def?.npc || !def.com) {
+                    return { action, ok: false, reason: 'need name + def{npc,op,com}' };
+                }
+                const r = learnShop(name, { npc: def.npc, op: def.op ?? 'trade', com: def.com });
+                return { action, ok: r.ok, error: r.error, shops: shopNames() };
+            }
+            case 'learn_plan': {
+                const name = typeof args.name === 'string' ? args.name : '';
+                const steps = Array.isArray(args.steps) ? (args.steps as string[]) : [];
+                if (!name || !steps.length) {
+                    return { action, ok: false, reason: 'need name + steps[]' };
+                }
+                const r = learnPlan(name, steps);
+                return { action, ok: r.ok, error: r.error, plans: planNames() };
             }
             case 'learn_source': {
                 // growth mechanism for the gather table: the soul discovers a

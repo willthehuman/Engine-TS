@@ -1,0 +1,7 @@
+{
+ "lumbridge general store": {
+  "npc": "Shop keeper",
+  "op": "Trade",
+  "com": 3900
+ }
+}
