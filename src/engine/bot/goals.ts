@@ -8,6 +8,7 @@ import { TalkRoutine } from './talk.js';
 import { CombatTrainRoutine } from './combat.js';
 import { InteractRoutine } from './interact.js';
 import { UseItemRoutine, ItemOpRoutine } from './use_item.js';
+import { GatherRoutine, gatherItems } from './gather.js';
 
 /**
  * Accepted step forms:
@@ -21,11 +22,14 @@ import { UseItemRoutine, ItemOpRoutine } from './use_item.js';
  *                               or kind:name (loc|npc|obj) e.g. use:raw_chicken|loc:range
  *   item_op:<item>:<op>       — fire a held-item op instantly (Bury/Eat/Drop/light...)
  *   wait:<seconds>            — stand still
+ *   gather:<item>             — effect-verified gathering from the known source
+ *                               (egg; milk/flour once shop-buy lands). Sources
+ *                               are data, see data/bot_sources.json.
  */
 /** Single-line DSL grammar. THE reference: errors and goal_help print this. */
-export const GOAL_FORMS = 'goto:x,z | find_npc:name | train:npc[:kills] | interact:target[:op] | use:item|target | item_op:item:op | wait:sec';
+export const GOAL_FORMS = 'goto:x,z | find_npc:name | train:npc[:kills] | interact:target[:op] | use:item|target | item_op:item:op | wait:sec | gather:item';
 
-const KNOWN_VERBS = ['goto', 'find_npc', 'train', 'interact', 'use', 'item_op', 'use_held', 'wait'];
+const KNOWN_VERBS = ['goto', 'find_npc', 'train', 'interact', 'use', 'item_op', 'use_held', 'wait', 'gather'];
 
 /** One-line correction for a bad step, or the bare grammar when nothing matches. */
 export function suggestStep(raw: string): string {
@@ -54,6 +58,10 @@ export function suggestStep(raw: string): string {
     }
     if (['buy', 'sell', 'bank', 'cook', 'mine', 'chop', 'fish', 'open', 'take'].includes(verb)) {
         return `"${step}" invalid — try "interact:${arg || step}"`;
+    }
+    if (verb === 'gather') {
+        const known = gatherItems().join('|');
+        return arg ? `"${step}" invalid — unknown item; can gather: ${known}` : `"${step}" invalid — needs an item (gather:egg)`;
     }
     return `"${step}" invalid — forms: ${GOAL_FORMS}`;
 }
@@ -126,6 +134,11 @@ function parseStep(raw: string): Routine | null {
             const secs = Number(step.slice(5));
             if (Number.isFinite(secs) && secs > 0 && secs <= 300) {
                 return new WaitRoutine(Math.round(secs * 1.67));
+            }
+        } else if (step.startsWith('gather:')) {
+            const item = raw.trim().slice(7).trim();
+            if (item.length > 0) {
+                return new GatherRoutine(item);
             }
         }
     } catch {

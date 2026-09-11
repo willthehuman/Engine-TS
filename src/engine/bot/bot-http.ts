@@ -7,6 +7,7 @@ import { brain } from './bot.js';
 import { botLog } from './EventLog.js';
 import { Percept } from './Percept.js';
 import { compileGoalVerbose, GOAL_FORMS } from './goals.js';
+import { learnSource, gatherItems } from './gather.js';
 import { CombatTrainRoutine } from './combat.js';
 import { InteractRoutine } from './interact.js';
 import { UseItemRoutine, inventorySnapshot, ItemOpRoutine } from './use_item.js';
@@ -444,7 +445,25 @@ export async function startBotHttp(): Promise<void> {
                 return errors.length ? { action, ok: true, steps: steps.length, warnings: errors } : { action, ok: true, steps: steps.length };
             }
             case 'goal_help': {
-                return { action, forms: GOAL_FORMS };
+                return { action, forms: GOAL_FORMS, gather: gatherItems() };
+            }
+            case 'learn_source': {
+                // growth mechanism for the gather table: the soul discovers a
+                // source in-game (locate + try), teaches it here — no recompile.
+                const item = typeof args.item === 'string' ? args.item : '';
+                const srcv = args.source as { kind?: string; query?: string; op?: string | number; area?: { x: number; z: number }; kills?: number; tool?: string } | undefined;
+                if (!item || !srcv?.kind || !srcv.query) {
+                    return { action, ok: false, reason: 'need item + source{kind,query}' };
+                }
+                const r = learnSource(item, {
+                    kind: srcv.kind as 'npc' | 'loc' | 'obj',
+                    query: srcv.query,
+                    op: srcv.op ?? 1,
+                    area: srcv.area,
+                    kills: srcv.kills,
+                    tool: srcv.tool
+                });
+                return { action, ok: r.ok, error: r.error, gather: gatherItems() };
             }
             default:
                 return { error: 'unknown action' };
