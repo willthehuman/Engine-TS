@@ -9,7 +9,7 @@ import { CombatTrainRoutine } from './combat.js';
 import { InteractRoutine } from './interact.js';
 import { UseItemRoutine, ItemOpRoutine } from './use_item.js';
 import { GatherRoutine, gatherItems } from './gather.js';
-import { BuyRoutine, shopNames } from './shop.js';
+import { BuyRoutine, SellRoutine, shopNames } from './shop.js';
 import { PlanRoutine, planNames } from './plans.js';
 
 /**
@@ -28,12 +28,13 @@ import { PlanRoutine, planNames } from './plans.js';
  *                               (egg; milk/flour once shop-buy lands). Sources
  *                               are data, see data/bot_sources.json.
  *   buy:<item>[:@<shop>]      — buy one unit from a shop (data/bot_shops.json)
+ *   sell:<item>[:@<shop>]     — sell one unit of an inventory item at a shop
  *   plan:<name>               — run a named multi-step plan (data/bot_plans.json)
  */
 /** Single-line DSL grammar. THE reference: errors and goal_help print this. */
-export const GOAL_FORMS = 'goto:x,z | find_npc:name | train:npc[:kills] | interact:target[:op] | use:item|target | item_op:item:op | wait:sec | gather:item | buy:item[@shop] | plan:name';
+export const GOAL_FORMS = 'goto:x,z | find_npc:name | train:npc[:kills] | interact:target[:op] | use:item|target | item_op:item:op | wait:sec | gather:item | buy:item[@shop] | sell:item[@shop] | plan:name';
 
-const KNOWN_VERBS = ['goto', 'find_npc', 'train', 'interact', 'use', 'item_op', 'use_held', 'wait', 'gather', 'buy', 'plan'];
+const KNOWN_VERBS = ['goto', 'find_npc', 'train', 'interact', 'use', 'item_op', 'use_held', 'wait', 'gather', 'buy', 'sell', 'plan'];
 
 /** One-line correction for a bad step, or the bare grammar when nothing matches. */
 export function suggestStep(raw: string): string {
@@ -69,6 +70,9 @@ export function suggestStep(raw: string): string {
     }
     if (verb === 'buy') {
         return arg ? `"${step}" invalid args — forms: buy:item@shop (known shops: ${shopNames().join('|') || 'none yet'})` : `"${step}" invalid — needs an item (buy:pot)`;
+    }
+    if (verb === 'sell') {
+        return arg ? `"${step}" invalid args — forms: sell:item@shop (known shops: ${shopNames().join('|') || 'none yet'})` : `"${step}" invalid — needs an item (sell:logs)`;
     }
     if (verb === 'plan') {
         const known = planNames().join('|');
@@ -158,6 +162,14 @@ function parseStep(raw: string): Routine | null {
             const shop = at === -1 ? '' : rest.slice(at + 1).trim();
             if (item.length > 0) {
                 return new BuyRoutine(item, shop);
+            }
+        } else if (step.startsWith('sell:')) {
+            const rest = raw.trim().slice(5).trim();
+            const at = rest.indexOf('@');
+            const item = (at === -1 ? rest : rest.slice(0, at)).trim();
+            const shop = at === -1 ? '' : rest.slice(at + 1).trim();
+            if (item.length > 0) {
+                return new SellRoutine(item, shop);
             }
         } else if (step.startsWith('plan:')) {
             const name = raw.trim().slice(5).trim();

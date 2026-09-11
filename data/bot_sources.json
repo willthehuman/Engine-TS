@@ -1,0 +1,30 @@
+{
+ "logs": {
+  "kind": "loc",
+  "query": "Oak",
+  "op": "chop down",
+  "area": {
+   "x": 3104,
+   "z": 3150
+  }
+ },
+ "willow logs": {
+  "kind": "loc",
+  "query": "Willow",
+  "op": "chop down",
+  "area": {
+   "x": 3031,
+   "z": 3168
+  }
+ },
+ "coins": {
+  "kind": "npc",
+  "query": "Man",
+  "op": "pickpocket",
+  "area": {
+   "x": 3216,
+   "z": 3224
+  },
+  "kills": 0
+ }
+}

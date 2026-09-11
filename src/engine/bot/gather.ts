@@ -138,6 +138,7 @@ export class GatherRoutine implements Routine {
 
     private probeTick = 0;
     private engagedAt = -1;
+    private lastFireTick = -100;
 
     step(bot: BotPlayer): RoutineStatus {
         const p = bot.player;
@@ -312,19 +313,23 @@ export class GatherRoutine implements Routine {
             return 'running';
         }
 
-        // 6) Attack. CombatTrainRoutine discipline: re-fire when the swing
-        //    timer (vars[58]) is ready EVEN IF the interaction still holds —
-        //    waiting for the hold to clear freezes the melee loop. The op
-        //    script must also be run directly ([opnpcN] starts the loop).
-        const ready = World.currentTick >= p.vars[58];
-        if (!p.hasInteraction() || ready) {
-            p.clearWaypoints();
-            const trigger = this.triggerFor(t);
-            if (p.setInteraction(Interaction.ENGINE, t.entity() as any, trigger)) {
-                p.opcalled = true;
-                this.engagedAt = World.currentTick;
-                botLog.append('action', { action: 'gather_interact', item: this.item, target: t.name, op: t.opName });
-                if (t.kind === 'npc') {
+        // 6) Fire the op. Attack path mirrors CombatTrainRoutine (re-fire on
+        //    the swing timer vars[58], run the [opnpcN] script directly to
+        //    start the melee loop). Non-attack ops (pickpocket, chop, take, ...)
+        //    re-fire on a cooldown until the item lands — the effect check
+        //    below IS the loop terminator.
+        const isAttack = String(t.opName ?? '')
+            .toLowerCase()
+            .includes('attack');
+        if (isAttack) {
+            const ready = World.currentTick >= p.vars[58];
+            if (!p.hasInteraction() || ready) {
+                p.clearWaypoints();
+                const trigger = this.triggerFor(t);
+                if (p.setInteraction(Interaction.ENGINE, t.entity() as any, trigger)) {
+                    p.opcalled = true;
+                    this.engagedAt = World.currentTick;
+                    botLog.append('action', { action: 'gather_interact', item: this.item, target: t.name, op: t.opName });
                     const npc = t.entity() as any;
                     const opScript = ScriptProvider.getByTrigger(ServerTriggerType.OPNPC1 + (t.opIndex - 1), NpcType.get(npc.type).id, NpcType.get(npc.type).category);
                     if (opScript) {
@@ -332,12 +337,32 @@ export class GatherRoutine implements Routine {
                     }
                 }
             }
+        } else {
+            // non-attack op: fire once per cooldown (~6s), no interaction wait —
+            // the engine executes the op; effect shows up as inventory/message
+            if (World.currentTick - this.lastFireTick > 10) {
+                if (!p.hasInteraction()) {
+                    p.clearWaypoints();
+                    const trigger = this.triggerFor(t);
+                    if (p.setInteraction(Interaction.ENGINE, t.entity() as any, trigger)) {
+                        p.opcalled = true;
+                        this.engagedAt = World.currentTick;
+                        this.lastFireTick = World.currentTick;
+                        botLog.append('action', { action: 'gather_interact', item: this.item, target: t.name, op: t.opName });
+                    }
+                }
+            }
         }
-        if (inventorySnapshot(bot).some(i => i.name.toLowerCase() === this.item)) {
+        if (this.stepWait(bot)) {
             botLog.append('action', { action: 'gather_done', item: this.item, source: 'interact' });
             return 'done';
         }
         return 'running';
+    }
+
+    /** Effect check: is the gathered item in the inventory now? */
+    private stepWait(bot: BotPlayer): boolean {
+        return inventorySnapshot(bot).some(i => i.name.toLowerCase().includes(this.item));
     }
 
     private pickup(bot: BotPlayer): RoutineStatus {
@@ -386,6 +411,10 @@ export class GatherRoutine implements Routine {
         if (t.kind === 'npc') {
             const npc = t.entity() as any;
             return !!World.getNpc(npc.nid) && npc.levels[3] > 0;
+        }
+        if (t.kind === 'loc') {
+            const loc = t.entity() as any;
+            return !!World.getLoc(t.x, t.z, t.level, loc.type);
         }
         return true;
     }

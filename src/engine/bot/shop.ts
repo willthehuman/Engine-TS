@@ -262,3 +262,156 @@ export class BuyRoutine implements Routine {
         return 'aborted';
     }
 }
+
+enum SellPhase {
+    OPEN,
+    WAIT_SHOP,
+    FIND_ITEM,
+    SELL,
+    DONE
+}
+
+/**
+ * SellRoutine: sell one unit of an inventory item at a shop — the mirror
+ * image of BuyRoutine. The open is identical (shopkeeper Trade op); the
+ * player's inventory rides the shop_template_side component (com 3823 in
+ * this content rev — inv_transmit(inv, shop_template_side:inv)). Fire the
+ * exact client INV_BUTTON2 ("Sell 1"), verify the item LEFT the inventory.
+ */
+export class SellRoutine implements Routine {
+    private itemQuery: string;
+    private shopName: string;
+    private opener: Routine | null = null;
+    private phase: SellPhase = SellPhase.OPEN;
+    private waitTicks = 0;
+    private sellTicks = 0;
+    private fireCooldown = 0;
+    private readonly COM = 3823; // shop_template_side:inv (player inventory in shop view)
+    private startedAt = 0;
+    private shopDef: ShopDef | null = null;
+    private sellSlot = -1;
+    private sellObj = -1;
+
+    constructor(itemQuery: string, shopName = '') {
+        this.itemQuery = itemQuery.trim().toLowerCase();
+        this.shopName = shopName.trim().toLowerCase();
+    }
+
+    get label(): string {
+        return `SellRoutine:${this.itemQuery}@${this.shopName || 'nearest'}`;
+    }
+
+    step(bot: BotPlayer): RoutineStatus {
+        const p = bot.player;
+        if (this.startedAt === 0) this.startedAt = World.currentTick;
+        if (World.currentTick - this.startedAt > 900) {
+            return this.abort('timeout', { item: this.itemQuery, phase: SellPhase[this.phase] });
+        }
+        if (this.fireCooldown > 0) this.fireCooldown--;
+
+        // Already sold? The item is GONE from inventory.
+        if (!inventorySnapshot(bot).some(i => i.name.toLowerCase().includes(this.itemQuery))) {
+            botLog.append('action', { action: 'sell_done', item: this.itemQuery, source: 'inventory' });
+            return 'done';
+        }
+
+        switch (this.phase) {
+            case SellPhase.OPEN: {
+                if (!this.opener) {
+                    this.shopDef = this.resolveShopDef(bot);
+                    if (!this.shopDef) return this.abort('unknown_shop', { shops: shopNames().join('|') });
+                    this.opener = new InteractRoutine(this.shopDef.npc, this.shopDef.op);
+                }
+                const s = this.opener.step(bot);
+                if (s === 'aborted') {
+                    this.opener = null;
+                    return 'running';
+                }
+                if (stockInv(bot, this.COM)) {
+                    this.phase = SellPhase.WAIT_SHOP;
+                    this.waitTicks = 0;
+                }
+                return 'running';
+            }
+            case SellPhase.WAIT_SHOP: {
+                if (stockInv(bot, this.COM)) {
+                    this.phase = SellPhase.FIND_ITEM;
+                    return 'running';
+                }
+                if (++this.waitTicks > 120) {
+                    return this.abort('shop_not_open', { npc: this.shopDef?.npc ?? '?' });
+                }
+                return 'running';
+            }
+            case SellPhase.FIND_ITEM: {
+                const st = stockInv(bot, this.COM);
+                if (!st) {
+                    this.phase = SellPhase.WAIT_SHOP;
+                    return 'running';
+                }
+                for (let slot = 0; slot < st.inv.capacity; slot++) {
+                    const item = st.inv.get(slot);
+                    if (!item || item.id <= 0) continue;
+                    const name = ObjType.get(item.id)?.name?.toLowerCase() ?? '';
+                    if (name.includes(this.itemQuery)) {
+                        this.sellSlot = slot;
+                        this.sellObj = item.id;
+                        this.phase = SellPhase.SELL;
+                        this.sellTicks = 0;
+                        botLog.append('action', { action: 'sell_found', item: name, slot, id: item.id });
+                        return 'running';
+                    }
+                }
+                return this.abort('not_in_inventory', { item: this.itemQuery });
+            }
+            case SellPhase.SELL: {
+                if (this.sellTicks > 60) {
+                    return this.abort('sell_failed', { item: this.itemQuery, note: 'shop refuses this item?' });
+                }
+                const st = stockInv(bot, this.COM);
+                if (!st) return this.abort('shop_closed', { item: this.itemQuery });
+                if (this.fireCooldown === 0) {
+                    const msg = new InvButton(2, this.sellObj, this.sellSlot, this.COM);
+                    const handler = new InvButtonHandler();
+                    if (!handler.handle(msg, p)) {
+                        return this.abort('sell_rejected', { item: this.itemQuery, slot: this.sellSlot });
+                    }
+                    botLog.append('action', { action: 'sell_fire', item: this.itemQuery, slot: this.sellSlot, id: this.sellObj });
+                    this.fireCooldown = 10;
+                }
+                this.sellTicks++;
+                return 'running';
+            }
+            case SellPhase.DONE:
+                return 'done';
+        }
+    }
+
+    private resolveShopDef(bot: BotPlayer): ShopDef | null {
+        if (this.shopName) {
+            const direct = shops()[this.shopName];
+            if (direct) return direct;
+            const fuzzy = Object.entries(shops()).find(([k]) => k.includes(this.shopName));
+            if (fuzzy) return fuzzy[1];
+            return null;
+        }
+        const p = bot.player;
+        let best: ShopDef | null = null;
+        let bestDist = Infinity;
+        for (const def of Object.values(shops())) {
+            const t = findTarget(bot, def.npc, def.op, ['npc']);
+            if (!t) continue;
+            const d = Math.max(Math.abs(t.x - p.x), Math.abs(t.z - p.z));
+            if (d < bestDist) {
+                bestDist = d;
+                best = def;
+            }
+        }
+        return best;
+    }
+
+    private abort(reason: string, extra?: Record<string, unknown>): RoutineStatus {
+        botLog.append('reflex', { kind: 'sell_fail', reason, ...(extra ?? {}) });
+        return 'aborted';
+    }
+}

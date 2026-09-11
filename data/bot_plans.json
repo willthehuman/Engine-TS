@@ -2,7 +2,7 @@
  "milk": {
   "steps": [
    "buy:bucket@lumbridge general store",
-   "use:bucket_empty|npc:Cow"
+   "use:bucket|npc:Cow"
   ]
  },
  "flour": {
@@ -10,7 +10,7 @@
    "buy:pot@lumbridge general store",
    "interact:wheat:pick",
    "use:grain|loc:hopper",
-   "interact:_hoppercontrol",
+   "interact:hopper controls",
    "interact:flour bin"
   ]
  }
