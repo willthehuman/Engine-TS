@@ -117,6 +117,7 @@ export class UseItemRoutine implements Routine {
                 }
                 this.worldTarget = { x: t.x, z: t.z, level: t.level, entity: t.entity, kind: this.targetKind };
                 this.stuckTicks = 0;
+                this.firedAt = 0;
                 this.lastX = -1;
                 this.lastZ = -1;
                 this.phase = 'APPROACH';
@@ -188,29 +189,32 @@ export class UseItemRoutine implements Routine {
                 p.lastUseSlot = held.slot;
                 const trigger = this.worldTarget!.kind === 'loc' ? ServerTriggerType.APLOCU : this.worldTarget!.kind === 'npc' ? ServerTriggerType.APNPCU : ServerTriggerType.APOBJU;
                 const ok = p.setInteraction(Interaction.ENGINE, t.entity(), trigger);
-                botLog.append('action', { action: 'use_fire', item: held.name, on: this.targetName, kind: t.kind, ok, dist });
                 if (ok) {
                     p.opcalled = true;
-                    this.firedAt = World.currentTick;
-                    // Engine reach check (rsmod.reached) returns false for size-2
-                    // NPCs (cow) even when adjacent — the interaction never executes.
-                    // Run the resolved op script directly when the engine won't.
-                    let direct = false;
-                    try {
-                        const te: any = t.entity();
-                        if (te && p.target === te && !p.inOperableDistance(te)) {
-                            const opScript = p.getOpTrigger();
-                            if (opScript) {
-                                p.runScript(ScriptRunner.init(opScript, p, te), true);
-                                direct = true;
+                    // fire ONCE, then conclude (the per-tick refire flooded the
+                    // feed with identical 'used X on Y' lines and never hit done)
+                    if (!this.firedAt) {
+                        this.firedAt = World.currentTick;
+                        // Engine reach checks (rsmod.reached) fail for some targets
+                        // even when adjacent — the interaction never executes. Run
+                        // the resolved op script directly when the engine won't.
+                        let direct = false;
+                        try {
+                            const te: any = t.entity();
+                            if (te && p.target === te && !p.inOperableDistance(te)) {
+                                const opScript = p.getOpTrigger();
+                                if (opScript) {
+                                    p.runScript(ScriptRunner.init(opScript, p, te), true);
+                                    direct = true;
+                                }
                             }
+                        } catch {
+                            /* leave it to the engine */
                         }
-                    } catch {
-                        /* leave it to the engine */
+                        botLog.append('action', { action: 'use_fire', item: held.name, on: this.targetName, kind: t.kind, ok, dist, direct });
                     }
-                    botLog.append('action', { action: 'use_direct', ran: direct, item: held.name, on: this.targetName });
-                    botLog.append('action', { action: 'use_item', item: held.name, on: this.targetName, kind: t.kind });
-                    if (World.currentTick - this.firedAt > 4) {
+                    if (World.currentTick - this.firedAt >= 4) {
+                        botLog.append('action', { action: 'use_item', item: held.name, on: this.targetName, kind: t.kind });
                         return 'done';
                     }
                     return 'running';
