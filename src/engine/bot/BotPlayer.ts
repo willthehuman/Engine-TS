@@ -128,6 +128,16 @@ export class BotPlayer {
         // clears after the open op lands and the collision updates)
         this.stepDoorTask();
 
+        // FREEZE ALL ROUTINES while a door task runs: scenery ops execute only
+        // on a tick where the player takes no steps — any routine stepping
+        // (walk/gather/buy/interact...) that queues movement cancels the
+        // pending op and the door never opens (2026-09-12: gather at the
+        // chicken-pen gate stalled forever; the freeze previously covered
+        // only the two walk routines — this covers every routine centrally).
+        if (this.doorTask) {
+            return;
+        }
+
         // step the routine queue
         if (this.routine) {
             this.currentRoutineName = this.routine.constructor.name;
