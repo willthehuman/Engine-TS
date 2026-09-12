@@ -14,6 +14,7 @@ import NullClientSocket from '#/server/NullClientSocket.js';
 import WordEnc from '#/cache/wordenc/WordEnc.js';
 import WordPack from '#/wordenc/WordPack.js';
 import { findPath } from '#/engine/GameMap.js';
+import { planRoute, stepNav, type NavPlan } from './nav.js';
 import { PlayerInfoProt } from '#/network/rsbuf/index.js';
 import { toBase37 } from '#/util/JString.js';
 import Entity from '#/engine/entity/Entity.js';
@@ -58,6 +59,8 @@ export class BotPlayer {
     private doorTask: { x: number; z: number; type: number; level: number; opIndex: number; phase: 'walk' | 'fire' | 'wait'; ticks: number; refired?: boolean } | null = null;
     private lastDoorOpenTick = -100;
     private doorsOpenedThisGoal = 0;
+    navPlan: NavPlan | null = null;
+    navBlacklist: Set<string> = new Set();
     /** doors that failed to improve anything this goal — try the NEXT nearest
      *  instead of the same unhelpful one forever (2026-09-12: task re-picked
      *  the farmhouse door (3189,3275) every cycle while the pen gate stayed shut) */
@@ -249,6 +252,8 @@ export class BotPlayer {
         this.walkRetryCount = 0;
         this.stepWalkTried = false;
         this.doorsOpenedThisGoal = 0;
+        this.navPlan = null;
+        this.navBlacklist.clear();
         this.doorBlacklist.clear();
         this.goalLabel = steps.join(' | ');
         this.goalSteps = [];
@@ -640,6 +645,19 @@ export class BotPlayer {
             return { ok: false, reason: 'segment_too_far' };
         }
         if (!this.pathAndQueue(x, z)) {
+            // NAV V2: door-aware route (doors = crossing edges, planned up front)
+            if (!this.navPlan || this.navPlan.destX !== x || this.navPlan.destZ !== z) {
+                this.navPlan = planRoute(p.level, p.x, p.z, x, z, this.navBlacklist);
+                if (this.navPlan) {
+                    botLog.append('action', { action: 'nav_plan', dest: `${x},${z}`, tiles: this.navPlan.tiles.length, crossings: this.navPlan.crossings.length });
+                }
+            }
+            if (this.navPlan) {
+                if (stepNav(this, this.navPlan)) {
+                    return { ok: true, reason: 'nav' };
+                }
+                this.navPlan = null; // stuck → drop, fall through to the legacy fallback
+            }
             if (this.doorsOpenedThisGoal < 4 && this.openDoorOf()) {
                 return { ok: false, reason: 'door_opening' };
             }
@@ -649,6 +667,9 @@ export class BotPlayer {
             return { ok: false, reason: 'no_path' };
         }
         this.doorsOpenedThisGoal = 0;
+        this.navPlan = null;
+        this.navBlacklist.clear();
+        this.navPlan = null;
         const key = x + ',' + z + ':' + (this.currentRoutineName ?? '');
         if (key !== this.lastWalkKey) {
             // dedupe: re-issues of the same leg log once
