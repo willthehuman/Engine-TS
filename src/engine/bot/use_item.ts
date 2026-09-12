@@ -124,7 +124,8 @@ export class UseItemRoutine implements Routine {
             }
             case 'APPROACH': {
                 const t = this.worldTarget!;
-                const dist = Math.max(Math.abs(t.x - p.x), Math.abs(t.z - p.z));
+                const lp = this.livePos();
+                const dist = Math.max(Math.abs(lp.x - p.x), Math.abs(lp.z - p.z));
                 if (dist <= 1) {
                     this.phase = 'FIRE';
                     return 'running';
@@ -175,7 +176,8 @@ export class UseItemRoutine implements Routine {
                     return 'aborted'; // ran out mid-walk
                 }
                 const t = this.worldTarget!;
-                const dist = Math.max(Math.abs(t.x - p.x), Math.abs(t.z - p.z));
+                const lp = this.livePos();
+                const dist = Math.max(Math.abs(lp.x - p.x), Math.abs(lp.z - p.z));
                 if (dist > 1) {
                     this.phase = 'APPROACH';
                     return 'running';
@@ -202,6 +204,21 @@ export class UseItemRoutine implements Routine {
             case 'DONE':
                 return 'done';
         }
+    }
+
+    /** Live target position — NPCs wander, snapshots go stale (cow ghost-chase). */
+    private livePos(): { x: number; z: number } {
+        const t = this.worldTarget!;
+        try {
+            const e: any = t.entity();
+            if (e && typeof e.x === 'number' && typeof e.z === 'number') {
+                t.x = e.x;
+                t.z = e.z;
+            }
+        } catch {
+            /* keep snapshot */
+        }
+        return { x: t.x, z: t.z };
     }
 
     /** item-on-item: mirrors OpHeldUHandler's script resolution chain exactly. */
