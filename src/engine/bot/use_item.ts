@@ -101,7 +101,9 @@ export class UseItemRoutine implements Routine {
                     return 'done'; // instant, no walking
                 }
                 // world target: nearest loc/npc/obj by name (any op — U-trigger needs no op index)
-                const t = findTarget(bot, this.targetName, 1, [this.targetKind]);
+                // U-trigger: no op filter — 'any' resolves without touching the
+                // target's op table (Cow had no resolvable op 1 → use_no_target).
+                const t = findTarget(bot, this.targetName, 'any', [this.targetKind]);
                 if (!t) {
                     botLog.append('reflex', { kind: 'use_no_target', target: this.targetName });
                     return 'aborted';

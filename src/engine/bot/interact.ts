@@ -72,6 +72,13 @@ function opsFor(type: OpLikeType): { index: number; name: string }[] {
 
 /** Resolve an op by name ("attack", "chop down") or 1-based number, case-insensitive. */
 export function resolveOp(type: OpLikeType, op: string | number): { index: number; name: string } | null {
+    // 'any' (or 0): the caller drives a trigger that needs no specific op —
+    // the U-trigger (use item on target: APNPCU/APLOCU/APOBJU) — so do not
+    // filter by op table at all. (Filtering skipped 'hidden' ops and index
+    // gaps made e.g. Cow resolve to null → use_no_target forever.)
+    if (op === 'any' || op === 0) {
+        return { index: 0, name: 'use' };
+    }
     const ops = opsFor(type);
     if (typeof op === 'number') {
         return ops.find(o => o.index === op) ?? null;
