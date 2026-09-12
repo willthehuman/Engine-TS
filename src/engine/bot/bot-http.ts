@@ -24,6 +24,7 @@ import NpcType from '#/cache/config/NpcType.js';
 import LocType from '#/cache/config/LocType.js';
 import ObjType from '#/cache/config/ObjType.js';
 import InvType from '#/cache/config/InvType.js';
+import VarPlayerType from '#/cache/config/VarPlayerType.js';
 import ParamType from '#/cache/config/ParamType.js';
 import Npc from '#/engine/entity/Npc.js';
 import type Player from '#/engine/entity/Player.js';
@@ -400,6 +401,28 @@ export async function startBotHttp(): Promise<void> {
             free_slots: (bot.player.invs.get(InvType.INV)?.capacity ?? 28) - rows.length,
             items: rows
         };
+    });
+
+    // /questlog?names=sheep,cookquest -> current varp value per named quest var
+    // (the player's own quest states — what the quest journal interface reads)
+    app.get('/questlog', async req => {
+        const bot = getBot();
+        if (!bot) {
+            return { error: 'no bot attached' };
+        }
+        const q = ((req.query as { names?: string })?.names ?? '').toString();
+        const names = q
+            .split(',')
+            .map(x => x.trim().toLowerCase())
+            .filter(Boolean);
+        const out: Record<string, number> = {};
+        for (const name of names) {
+            const t = VarPlayerType.getByName(name);
+            if (t) {
+                out[name] = bot.player.vars[t.id];
+            }
+        }
+        return { quests: out };
     });
 
     app.get('/chat-tail', async req => {
