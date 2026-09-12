@@ -19,6 +19,7 @@
 //   gather fails fast with need_tool so the planner can add a buy milestone.
 
 import World from '#/engine/World.js';
+import { isLineOfWalk } from '#/engine/GameMap.js';
 import NpcType from '#/cache/config/NpcType.js';
 import ScriptProvider from '#/engine/script/ScriptProvider.js';
 import ScriptRunner from '#/engine/script/ScriptRunner.js';
@@ -283,8 +284,12 @@ export class GatherRoutine implements Routine {
             return 'running';
         }
 
-        // 5) Approach
-        if (dist > 1) {
+        // 5) Approach — also when the walk-line is blocked: a target at
+        //    Chebyshev 1 across a fence/wall would otherwise sit in the fire
+        //    path forever, attack-spamming into "I can't reach that!" (the
+        //    2026-09-12 chicken-pen observation). Routing it through the
+        //    approach also triggers walkSegment→door task to open a way.
+        if (dist > 1 || !isLineOfWalk(p.level, p.x, p.z, t.x, t.z)) {
             p.clearInteraction();
             if (p.x === this.lastPos.x && p.z === this.lastPos.z) {
                 this.idleTicks++;
@@ -321,6 +326,12 @@ export class GatherRoutine implements Routine {
         const isAttack = String(t.opName ?? '')
             .toLowerCase()
             .includes('attack');
+        if (isAttack && !isLineOfWalk(p.level, p.x, p.z, t.x, t.z)) {
+            // unreachable from here — retarget; the approach path above owns
+            // opening a way through (door task)
+            this.target = null;
+            return 'running';
+        }
         if (isAttack) {
             const ready = World.currentTick >= p.vars[58];
             if (!p.hasInteraction() || ready) {
