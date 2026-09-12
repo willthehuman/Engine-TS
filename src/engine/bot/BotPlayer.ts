@@ -531,7 +531,7 @@ export class BotPlayer {
             p.clearWaypoints();
             const trigger = ServerTriggerType.APLOC1 + (task.opIndex - 1);
             const setOk = p.setInteraction(Interaction.ENGINE, loc as unknown as Entity, trigger);
-            botLog.append('reflex', { kind: 'door_task_fire', x: task.x, z: task.z, opIndex: task.opIndex, set: setOk });
+            botLog.append('reflex', { kind: 'door_task_fire', x: task.x, z: task.z, opIndex: task.opIndex, set: setOk, at: `${p.x},${p.z}`, dist: Math.max(Math.abs(task.x - p.x), Math.abs(task.z - p.z)) });
             if (setOk) {
                 p.opcalled = true;
                 this.doorsOpenedThisGoal++;
