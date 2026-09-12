@@ -519,8 +519,21 @@ export class BotPlayer {
         }
         if (task.phase === 'fire') {
             if (p.hasInteraction()) {
-                botLog.append('reflex', { kind: 'door_task_fire_blocked', x: task.x, z: task.z, why: 'interaction_pending' });
-                return; // give the active interaction the tick
+                // A stale engine interaction that never clears would
+                // block this phase FOREVER (fire_blocked spam + the central
+                // freeze leaving the bot standing all day — 2026-09-12 Al Kharid
+                // deadlock). Give the pending op a few ticks, then cancel it and
+                // release the door task so the walker can move on.
+                if (task.ticks++ > 20) {
+                    p.clearInteraction();
+                    this.doorBlacklist.add(`${task.x},${task.z}`);
+                    botLog.append('reflex', { kind: 'door_task_giveup', phase: 'fire_interaction_stuck', x: task.x, z: task.z });
+                    this.doorTask = null;
+                    this.lastDoorOpenTick = World.currentTick;
+                } else {
+                    botLog.append('reflex', { kind: 'door_task_fire_blocked', x: task.x, z: task.z, why: 'interaction_pending', ticks: task.ticks });
+                }
+                return;
             }
             const loc = World.getLoc(task.x, task.z, task.level, task.type);
             if (!loc) {
