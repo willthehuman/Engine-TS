@@ -58,6 +58,7 @@ export class BotPlayer {
     private lastDoorOpenTick = -100;
     private doorsOpenedThisGoal = 0;
     private walkRetryCount = 0;
+    private stepWalkTried = false;
     static readonly MAX_WALK_RETRIES = 4;
     static readonly SAY_COOLDOWN_TICKS = 5; // 1 say / 3s
     static readonly MOVE_COOLDOWN_TICKS = 1; // 2 moves / s
@@ -149,17 +150,32 @@ export class BotPlayer {
                 this.routine = null;
                 this.currentRoutineName = null;
                 if (wasStepWalk && destX !== undefined && destZ !== undefined) {
-                    // stepwalk got stuck (wall/door) — retry with full pathfinding
-                    // (WalkRoutine → walkSegment → findPath → openDoorOf → door task)
-                    this.enqueue(new WalkRoutine(destX, destZ));
-                    botLog.append('action', { action: 'stepwalk_fallback', x: destX, z: destZ });
+                    if (this.walkRetryCount > BotPlayer.MAX_WALK_RETRIES) {
+                        // the last-resort stepwalk pass failed too — real abort
+                        this.routineQueue.length = 0;
+                        this.emitGoalDone('aborted');
+                    } else {
+                        // stepwalk got stuck (wall/door) — retry with full
+                        // pathfinding (WalkRoutine → door task machinery)
+                        this.enqueue(new WalkRoutine(destX, destZ));
+                        botLog.append('action', { action: 'stepwalk_fallback', x: destX, z: destZ });
+                    }
                 } else if (destX !== undefined && destZ !== undefined) {
                     // WalkRoutine got stuck — the door may be in the process of
                     // opening. Retry up to MAX_WALK_RETRIES times.
                     this.walkRetryCount++;
                     if (this.walkRetryCount > BotPlayer.MAX_WALK_RETRIES) {
-                        this.routineQueue.length = 0;
-                        this.emitGoalDone('aborted');
+                        if (!this.stepWalkTried) {
+                            // retries exhausted — ONE tile-per-tile pass as the
+                            // last resort (stale-A*/door-dense routes) before
+                            // the goal dies
+                            this.stepWalkTried = true;
+                            this.enqueue(new StepWalkRoutine(destX, destZ));
+                            botLog.append('action', { action: 'stepwalk_lastresort', x: destX, z: destZ });
+                        } else {
+                            this.routineQueue.length = 0;
+                            this.emitGoalDone('aborted');
+                        }
                     } else {
                         this.enqueue(new WalkRoutine(destX, destZ));
                         botLog.append('action', { action: 'walkretry', x: destX, z: destZ, retry: this.walkRetryCount });
@@ -178,6 +194,10 @@ export class BotPlayer {
         const next = this.routineQueue.shift();
         if (next) {
             this.routine = next;
+            if (next instanceof StepWalkRoutine) {
+                // one stepwalk pass per goal attempt (explicit or last-resort)
+                this.stepWalkTried = true;
+            }
             this.brainState = 'executing';
         } else {
             this.brainState = 'idle';
@@ -202,6 +222,7 @@ export class BotPlayer {
         const wasActive = this.routine !== null || this.routineQueue.length > 0;
         this.clearQueue();
         this.walkRetryCount = 0;
+        this.stepWalkTried = false;
         this.goalLabel = steps.join(' | ');
         this.goalSteps = [];
         for (const r of routines) {

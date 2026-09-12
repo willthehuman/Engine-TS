@@ -32,9 +32,13 @@ import { PlanRoutine, planNames } from './plans.js';
  *   plan:<name>               — run a named multi-step plan (data/bot_plans.json)
  */
 /** Single-line DSL grammar. THE reference: errors and goal_help print this. */
-export const GOAL_FORMS = 'goto:x,z | stepwalk:x,z | find_npc:name | train:npc[:kills] | interact:target[:op] | use:item|target | item_op:item:op | wait:sec | gather:item | buy:item[@shop] | sell:item[@shop] | plan:name';
+// NOTE: stepwalk:x,z is intentionally NOT advertised — walk strategy is an
+// engine-internal choice (goto handles doors/stalls since 75774b64); the
+// StepWalkRoutine survives as the last-resort fallback in BotPlayer and the
+// parser still accepts old plans that contain it.
+export const GOAL_FORMS = 'goto:x,z | find_npc:name | train:npc[:kills] | interact:target[:op] | use:item|target | item_op:item:op | wait:sec | gather:item | buy:item[@shop] | sell:item[@shop] | plan:name';
 
-const KNOWN_VERBS = ['goto', 'stepwalk', 'find_npc', 'train', 'interact', 'use', 'item_op', 'use_held', 'wait', 'gather', 'buy', 'sell', 'plan'];
+const KNOWN_VERBS = ['goto', 'find_npc', 'train', 'interact', 'use', 'item_op', 'use_held', 'wait', 'gather', 'buy', 'sell', 'plan'];
 
 /** One-line correction for a bad step, or the bare grammar when nothing matches. */
 export function suggestStep(raw: string): string {
