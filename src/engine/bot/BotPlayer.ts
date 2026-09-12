@@ -461,6 +461,7 @@ export class BotPlayer {
         const p = this.player;
         if (task.phase === 'walk') {
             if (task.ticks++ > 40) {
+                botLog.append('reflex', { kind: 'door_task_giveup', phase: 'walk_timeout', x: task.x, z: task.z });
                 this.doorTask = null; // couldn't get adjacent — give up this door
                 this.lastDoorOpenTick = World.currentTick;
                 return;
@@ -504,22 +505,27 @@ export class BotPlayer {
                     return;
                 }
             }
+            botLog.append('reflex', { kind: 'door_task_giveup', phase: 'walk_stuck', x: task.x, z: task.z });
             this.doorTask = null; // fully stuck
             this.lastDoorOpenTick = World.currentTick;
             return;
         }
         if (task.phase === 'fire') {
             if (p.hasInteraction()) {
+                botLog.append('reflex', { kind: 'door_task_fire_blocked', x: task.x, z: task.z, why: 'interaction_pending' });
                 return; // give the active interaction the tick
             }
             const loc = World.getLoc(task.x, task.z, task.level, task.type);
             if (!loc) {
+                botLog.append('reflex', { kind: 'door_task_giveup', phase: 'loc_missing', x: task.x, z: task.z });
                 this.doorTask = null; // despawned/morphed — walkSegment will re-scan
                 return;
             }
             p.clearWaypoints();
             const trigger = ServerTriggerType.APLOC1 + (task.opIndex - 1);
-            if (p.setInteraction(Interaction.ENGINE, loc as unknown as Entity, trigger)) {
+            const setOk = p.setInteraction(Interaction.ENGINE, loc as unknown as Entity, trigger);
+            botLog.append('reflex', { kind: 'door_task_fire', x: task.x, z: task.z, opIndex: task.opIndex, set: setOk });
+            if (setOk) {
                 p.opcalled = true;
                 this.doorsOpenedThisGoal++;
                 botLog.append('action', { action: 'door_open', loc: `${task.x},${task.z}` });
@@ -537,6 +543,7 @@ export class BotPlayer {
         const changed = !loc || loc.isChanged() || loc.type !== task.type;
         if (changed) {
             if (task.ticks++ > 4) {
+                botLog.append('reflex', { kind: 'door_task_end', x: task.x, z: task.z, changed: true });
                 this.doorTask = null;
                 this.lastDoorOpenTick = World.currentTick;
             }
@@ -550,6 +557,7 @@ export class BotPlayer {
                 p.clearInteraction(); // fresh interaction — the old one may be stuck
                 return;
             }
+            botLog.append('reflex', { kind: 'door_task_end', x: task.x, z: task.z, changed: false });
             this.doorTask = null;
             this.lastDoorOpenTick = World.currentTick;
         }
@@ -582,6 +590,7 @@ export class BotPlayer {
             return false;
         }
         this.doorTask = { ...best, phase: 'walk', ticks: 0 };
+        botLog.append('reflex', { kind: 'door_task_start', x: best.x, z: best.z, opIndex: best.opIndex });
         return true;
     }
 
