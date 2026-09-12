@@ -13,6 +13,7 @@
 
 import { Interaction } from '#/engine/entity/Interaction.js';
 import ServerTriggerType from '#/engine/script/ServerTriggerType.js';
+import { isLineOfWalk } from '#/engine/GameMap.js';
 import World from '#/engine/World.js';
 import Npc from '#/engine/entity/Npc.js';
 import Loc from '#/engine/entity/Loc.js';
@@ -81,16 +82,21 @@ export function resolveOp(type: OpLikeType, op: string | number): { index: numbe
 
 /** Find the nearest matching entity across the requested kinds (nearest wins).
  * Exact name matches beat substring matches ("door" must not resolve Trapdoor). */
-export function findTarget(bot: BotPlayer, query: string, op: string | number, kinds: InteractKind[] = ['npc', 'loc', 'obj']): InteractTarget | null {
-    return scanTargets(bot, query, op, kinds, true) ?? scanTargets(bot, query, op, kinds, false);
+export function findTarget(bot: BotPlayer, query: string, op: string | number, kinds: InteractKind[] = ['npc', 'loc', 'obj'], preferReachable = false): InteractTarget | null {
+    return scanTargets(bot, query, op, kinds, true, preferReachable) ?? scanTargets(bot, query, op, kinds, false, preferReachable);
 }
 
-function scanTargets(bot: BotPlayer, query: string, op: string | number, kinds: InteractKind[], exact: boolean): InteractTarget | null {
+function scanTargets(bot: BotPlayer, query: string, op: string | number, kinds: InteractKind[], exact: boolean, preferReachable = false): InteractTarget | null {
     const p = bot.player;
     const q = query.trim().toLowerCase();
     const hit = (...cands: (string | null | undefined)[]): boolean => (exact ? matchesExact(q, ...cands) : matches(q, ...cands));
     let best: InteractTarget | null = null;
     let bestDist = Infinity;
+    // Nearest target with a CLEAR walk-line from the player. Killing across a
+    // fence/wall means endless "I can't reach that!" re-fires — when the
+    // caller asks preferReachable (gather), a same-side target wins.
+    let bestReach: InteractTarget | null = null;
+    let bestReachDist = Infinity;
 
     if (kinds.includes('npc')) {
         for (const npc of World.npcs) {
@@ -104,6 +110,12 @@ function scanTargets(bot: BotPlayer, query: string, op: string | number, kinds: 
                 if (!r) continue;
                 best = { kind: 'npc', name: nt!.name ?? q, x: npc.x, z: npc.z, level: npc.level, entity: () => npc, opIndex: r.index, opName: r.name };
                 bestDist = dist;
+            }
+            if (preferReachable && dist < bestReachDist && isLineOfWalk(p.level, p.x, p.z, npc.x, npc.z)) {
+                const r2 = resolveOp(nt as OpLikeType, op);
+                if (!r2) continue;
+                bestReach = { kind: 'npc', name: nt!.name ?? q, x: npc.x, z: npc.z, level: npc.level, entity: () => npc, opIndex: r2.index, opName: r2.name };
+                bestReachDist = dist;
             }
         }
     }
@@ -142,7 +154,7 @@ function scanTargets(bot: BotPlayer, query: string, op: string | number, kinds: 
         }
     }
 
-    return best;
+    return preferReachable ? (bestReach ?? best) : best;
 }
 
 enum Phase {

@@ -265,7 +265,7 @@ export class GatherRoutine implements Routine {
                 this.kills++;
                 botLog.append('action', { action: 'gather_kill', item: this.item, npc: this.target.name, kills: this.kills });
             }
-            const t = findTarget(bot, src.query, src.op, [src.kind]);
+            const t = findTarget(bot, src.query, src.op, [src.kind], true);
             if (!t) {
                 return this.abort('no_source', { query: src.query, kills: this.kills });
             }
