@@ -23,6 +23,7 @@ import NpcType from '#/cache/config/NpcType.js';
 import LocType from '#/cache/config/LocType.js';
 import ObjType from '#/cache/config/ObjType.js';
 import { botLog } from './EventLog.js';
+import ScriptRunner from '#/engine/script/ScriptRunner.js';
 import { wasUnreachable, clearDialogFlags } from './dialog.js';
 import type { BotPlayer } from './BotPlayer.js';
 import type { Routine, RoutineStatus } from './routines.js';
@@ -408,6 +409,23 @@ export class InteractRoutine implements Routine {
                 const ok = p.setInteraction(Interaction.ENGINE, t.entity() as Entity, trigger);
                 if (ok) {
                     p.opcalled = true;
+                    // Engine reach checks (rsmod.reached) fail for some targets even
+                    // when adjacent (size-2 NPCs, certain loc shapes/angles) — the
+                    // interaction is set but NEVER executes (wheat Pick at point
+                    // blank, mill door changed:false, cow milk). Direct-run the
+                    // resolved script when the engine won't (mirrors use_item).
+                    try {
+                        const te = t.entity() as Entity;
+                        if (te && !p.inOperableDistance(te)) {
+                            const opScript = p.getOpTrigger();
+                            if (opScript) {
+                                p.runScript(ScriptRunner.init(opScript, p, te), true);
+                                botLog.append('action', { action: 'interact_direct', target: t.name, op: t.opName });
+                            }
+                        }
+                    } catch {
+                        /* leave it to the engine */
+                    }
                     if (!this.firedOnce) {
                         this.firedOnce = true;
                         this.firedAt = World.currentTick;

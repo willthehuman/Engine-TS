@@ -4,6 +4,7 @@
 // The world loop already guards all network I/O with isClientConnected(), so a
 // NullClientSocket player ticks through the world without any packet traffic.
 
+import ScriptRunner from '#/engine/script/ScriptRunner.js';
 import fs from 'fs';
 import Packet from '#/io/Packet.js';
 import World from '#/engine/World.js';
@@ -549,6 +550,20 @@ export class BotPlayer {
                 p.opcalled = true;
                 this.doorsOpenedThisGoal++;
                 botLog.append('action', { action: 'door_open', loc: `${task.x},${task.z}` });
+                // reach-check fallback: some stands fail rsmod.reached for the
+                // door loc → the op never executes (changed:false loop). Direct-
+                // run the resolved script when the engine won't.
+                try {
+                    const de = loc as unknown as Entity;
+                    if (!p.inOperableDistance(de)) {
+                        const opScript = p.getOpTrigger();
+                        if (opScript) {
+                            p.runScript(ScriptRunner.init(opScript, p, de), true);
+                        }
+                    }
+                } catch {
+                    /* leave it to the engine */
+                }
             }
             task.phase = 'wait';
             task.ticks = 0;
