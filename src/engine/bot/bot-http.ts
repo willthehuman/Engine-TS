@@ -16,7 +16,9 @@ import { UseItemRoutine, inventorySnapshot, ItemOpRoutine } from './use_item.js'
 import { currentDialog, resetDialog } from './dialog.js';
 import { resolveDialogChoice, dialogChoicePending } from './dialog.js';
 import ScriptState from '#/engine/script/ScriptState.js';
-import { findPath } from '#/engine/GameMap.js';
+import { findPath, isMapBlocked, isFlagged, isIndoors } from '#/engine/GameMap.js';
+import { CoordGrid } from '#/engine/CoordGrid.js';
+import { CollisionFlag } from '#/engine/routefinder/index.js';
 import World from '#/engine/World.js';
 import NpcType from '#/cache/config/NpcType.js';
 import LocType from '#/cache/config/LocType.js';
@@ -282,9 +284,21 @@ export async function startBotHttp(): Promise<void> {
             return { error: 'need integer x,z' };
         }
         const p = bot.player;
-        const legs: { from: [number, number]; to: [number, number]; steps: number; ok: boolean }[] = [];
-        let cx = p.x;
-        let cz = p.z;
+        // optional from=x,z (defaults to the player's live tile)
+        let fx = p.x;
+        let fz = p.z;
+        if (typeof q.from === 'string' && q.from.includes(',')) {
+            const [a, b] = q.from.split(',');
+            const nx = Number(a);
+            const nz = Number(b);
+            if (Number.isInteger(nx) && Number.isInteger(nz)) {
+                fx = nx;
+                fz = nz;
+            }
+        }
+        const legs: { from: [number, number]; to: [number, number]; steps: number; ok: boolean; path?: [number, number][] }[] = [];
+        let cx = fx;
+        let cz = fz;
         for (let i = 0; i < 8; i++) {
             const dx = x - cx;
             const dz = z - cz;
@@ -298,7 +312,15 @@ export async function startBotHttp(): Promise<void> {
             const tz = cz + Math.round(dz * s);
             const path = findPath(p.level, cx, cz, tx, tz);
             const ok = !!path && path.length > 0;
-            legs.push({ from: [cx, cz], to: [tx, tz], steps: ok ? path.length : 0, ok });
+            let tiles: [number, number][] | undefined;
+            if (ok) {
+                tiles = [];
+                for (let k = 0; k < path.length; k++) {
+                    const { x: wx, z: wz } = CoordGrid.unpackCoord(path[k]);
+                    tiles.push([wx, wz]);
+                }
+            }
+            legs.push({ from: [cx, cz], to: [tx, tz], steps: ok ? path.length : 0, ok, path: tiles });
             if (!ok) {
                 break;
             }
@@ -308,6 +330,53 @@ export async function startBotHttp(): Promise<void> {
         }
         const reached = legs.length > 0 && legs[legs.length - 1].ok && legs[legs.length - 1].to[0] === x && legs[legs.length - 1].to[1] === z;
         return { from: { x: p.x, z: p.z }, to: { x, z }, reached, legs };
+    });
+
+    app.get('/tile', async req => {
+        // surgical probe: collision flags + every loc sitting on this tile
+        // (which layer, what name/ops/blocks) — for the door/wall bug class.
+        const q = req.query as Record<string, string>;
+        const x = Number(q.x);
+        const z = Number(q.z);
+        const level = Number(q.level ?? 0) || 0;
+        if (!Number.isInteger(x) || !Number.isInteger(z)) {
+            return { error: 'need integer x,z' };
+        }
+        const zone = World.gameMap.getZone(x, z, level);
+        const locs: Record<string, unknown>[] = [];
+        for (const loc of zone.getAllLocsSafe()) {
+            if (loc.x !== x || loc.z !== z) continue;
+            const lt = LocType.get(loc.type);
+            locs.push({
+                id: loc.type,
+                name: lt?.name ?? null,
+                op: lt?.op ?? null,
+                blockwalk: lt?.blockwalk ?? null,
+                blockrange: lt?.blockrange ?? null,
+                active: lt?.active ?? null,
+                width: lt?.width ?? null,
+                length: lt?.length ?? null,
+                shape: loc.shape,
+                angle: loc.angle,
+                layer: loc.layer,
+                changed: loc.isChanged(),
+                lifecycle: (loc as unknown as { lifecycle: number }).lifecycle
+            });
+        }
+        return {
+            x,
+            z,
+            level,
+            blocked: isMapBlocked(x, z, level),
+            indoors: isIndoors(x, z, level),
+            flags: {
+                west: isFlagged(x, z, level, CollisionFlag.BLOCK_WEST),
+                east: isFlagged(x, z, level, CollisionFlag.BLOCK_EAST),
+                north: isFlagged(x, z, level, CollisionFlag.BLOCK_NORTH),
+                south: isFlagged(x, z, level, CollisionFlag.BLOCK_SOUTH)
+            },
+            locs
+        };
     });
 
     // graceful shutdown: orderly logout (flushes player saves + waits for the

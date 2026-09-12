@@ -3,7 +3,7 @@
 // compilation to steps is pure code. Steps run sequentially; a failed step
 // aborts the rest (Pepe goes back to wandering).
 
-import { WalkRoutine, WaitRoutine, type Routine } from './routines.js';
+import { WalkRoutine, WaitRoutine, StepWalkRoutine, type Routine } from './routines.js';
 import { TalkRoutine } from './talk.js';
 import { CombatTrainRoutine } from './combat.js';
 import { InteractRoutine } from './interact.js';
@@ -32,9 +32,9 @@ import { PlanRoutine, planNames } from './plans.js';
  *   plan:<name>               — run a named multi-step plan (data/bot_plans.json)
  */
 /** Single-line DSL grammar. THE reference: errors and goal_help print this. */
-export const GOAL_FORMS = 'goto:x,z | find_npc:name | train:npc[:kills] | interact:target[:op] | use:item|target | item_op:item:op | wait:sec | gather:item | buy:item[@shop] | sell:item[@shop] | plan:name';
+export const GOAL_FORMS = 'goto:x,z | stepwalk:x,z | find_npc:name | train:npc[:kills] | interact:target[:op] | use:item|target | item_op:item:op | wait:sec | gather:item | buy:item[@shop] | sell:item[@shop] | plan:name';
 
-const KNOWN_VERBS = ['goto', 'find_npc', 'train', 'interact', 'use', 'item_op', 'use_held', 'wait', 'gather', 'buy', 'sell', 'plan'];
+const KNOWN_VERBS = ['goto', 'stepwalk', 'find_npc', 'train', 'interact', 'use', 'item_op', 'use_held', 'wait', 'gather', 'buy', 'sell', 'plan'];
 
 /** One-line correction for a bad step, or the bare grammar when nothing matches. */
 export function suggestStep(raw: string): string {
@@ -96,6 +96,11 @@ function parseStep(raw: string): Routine | null {
             const [x, z] = step.slice(5).split(',').map(Number);
             if (Number.isInteger(x) && Number.isInteger(z)) {
                 return new WalkRoutine(x, z);
+            }
+        } else if (step.startsWith('stepwalk:')) {
+            const [x, z] = step.slice(9).split(',').map(Number);
+            if (Number.isInteger(x) && Number.isInteger(z)) {
+                return new StepWalkRoutine(x, z);
             }
         } else if (step.startsWith('find_npc:')) {
             const name = raw.trim().slice(9).trim();

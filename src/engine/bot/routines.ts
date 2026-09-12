@@ -1,6 +1,7 @@
 // Pepe bot — deterministic routines. Pure code executors; no LLM in here.
 
-import { findPath } from '#/engine/GameMap.js';
+import { findPath, canTravel } from '#/engine/GameMap.js';
+import { CollisionType } from '#/engine/routefinder/index.js';
 import World from '#/engine/World.js';
 import { botLog } from './EventLog.js';
 import type { BotPlayer } from './BotPlayer.js';
@@ -22,9 +23,8 @@ export class WalkRoutine implements Routine {
     private destZ: number;
     private issued = false;
     private stuckTicks = 0;
-    private lastX = -1;
-    private lastZ = -1;
-    private maxStuck = 50; // ~30s without position change = abort
+    private bestDist = Infinity; // best (smallest) distance seen so far
+    private maxStuck = 80; // ~50s without improvement = abort (long enough for door tasks)
     private readonly SEGMENT = 40;
 
     constructor(x: number, z: number) {
@@ -41,16 +41,30 @@ export class WalkRoutine implements Routine {
             return 'done';
         }
 
-        // stuck detection
-        if (p.x === this.lastX && p.z === this.lastZ) {
-            this.stuckTicks++;
-            if (this.stuckTicks >= this.maxStuck) {
-                return 'aborted';
-            }
-        } else {
+        // stuck detection: if the player's distance to the destination hasn't
+        // improved (decreased) for maxStuck consecutive ticks, it's stuck.
+        // If a door task is active, the player may be walking toward a door
+        // that is off the direct path — distance to the destination may not
+        // improve, so don't count that as stuck.
+        const dist = Math.max(Math.abs(p.x - this.destX), Math.abs(p.z - this.destZ));
+        const doorTaskActive = (bot as unknown as Record<string, unknown>).doorTask != null;
+        if (!doorTaskActive && dist < this.bestDist) {
+            this.bestDist = dist;
             this.stuckTicks = 0;
-            this.lastX = p.x;
-            this.lastZ = p.z;
+        } else if (!doorTaskActive) {
+            this.stuckTicks++;
+        }
+        if (this.stuckTicks >= this.maxStuck) {
+            return 'aborted';
+        }
+
+        // Door task owns the bot while it runs: scenery ops only execute on a
+        // tick where the player takes NO steps (tryInteract's allowOpScenery =
+        // stepsTaken === 0). Issuing any movement here cancels that window and
+        // the door never actually opens (2026-09-12: cold-trace root cause —
+        // fired door_open but the doorway stayed blocked forever).
+        if (doorTaskActive) {
+            return 'running';
         }
 
         // (re)issue when: never issued, path exhausted mid-journey, or stalled 10 ticks
@@ -68,6 +82,12 @@ export class WalkRoutine implements Routine {
             }
             const res = bot.walkSegment(tx, tz);
             if (res.ok) {
+                this.issued = true;
+            } else if (res.reason === 'door_opening') {
+                // A door task is in progress — don't re-issue every tick.
+                // The door task advances on its own; the next re-issue
+                // (triggered by exhausted waypoints or stall) will find
+                // the door open and succeed.
                 this.issued = true;
             } else if (tx !== this.destX || tz !== this.destZ) {
                 // segment unreachable — try progressively smaller hops toward it
@@ -87,6 +107,144 @@ export class WalkRoutine implements Routine {
             }
         }
         return 'running';
+    }
+}
+
+/**
+ * Tile-per-tile walk: always targets the NEXT single step toward the
+ * destination — exactly like a player clicking the adjacent tile over and
+ * over. No long-distance A* ever runs, so the "path cannot be made through
+ * a door" dead-end class of failures disappears: each hop is a trivially
+ * short findPath that either succeeds (walk one tile) or triggers the door
+ * opener and retries next tick.
+ *
+ * Use for long journeys where the old segment-based WalkRoutine loops.
+ * Slower (one A* per tile) but bullet-proof against mid-route blockers.
+ */
+export class StepWalkRoutine implements Routine {
+    private destX: number;
+    private destZ: number;
+    private stuckTicks = 0;
+    private bestDist = Infinity; // best (smallest) distance seen so far
+    private readonly maxStuck = 40; // ~24s of no improvement = fallback (door tasks take ~20 ticks)
+
+    constructor(x: number, z: number) {
+        this.destX = x;
+        this.destZ = z;
+    }
+
+    step(bot: BotPlayer): RoutineStatus {
+        const p = bot.player;
+        // arrived (exact tile match for stepwalk — no LOC-tile leniency)
+        if (p.x === this.destX && p.z === this.destZ) {
+            return 'done';
+        }
+
+        // stuck detection: if the player's distance to the destination hasn't
+        // improved (decreased) for maxStuck consecutive ticks, it's stuck.
+        // If a door task is active, the player may be walking toward a door
+        // that is off the direct path — distance to the destination may not
+        // improve, so don't count that as stuck.
+        const dist = Math.max(Math.abs(p.x - this.destX), Math.abs(p.z - this.destZ));
+        const doorTaskActive = (bot as unknown as Record<string, unknown>).doorTask != null;
+        if (!doorTaskActive && dist < this.bestDist) {
+            this.bestDist = dist;
+            this.stuckTicks = 0;
+        } else if (!doorTaskActive) {
+            this.stuckTicks++;
+        }
+        // Debug: log stuck state every 5 ticks
+        if (this.stuckTicks > 0 && this.stuckTicks % 5 === 0) {
+            botLog.append('reflex', { kind: 'stepwalk_stuck_debug', x: p.x, z: p.z, dist, bestDist: this.bestDist, stuckTicks: this.stuckTicks, maxStuck: this.maxStuck, doorTaskActive });
+        }
+        if (this.stuckTicks >= this.maxStuck) {
+            return 'aborted';
+        }
+
+        // Freeze while a door task runs — see WalkRoutine note (stepsTaken
+        // must be 0 for the loc op to execute).
+        if (doorTaskActive) {
+            return 'running';
+        }
+
+        // Build candidate steps toward the destination, sorted by
+        // Chebyshev distance (closest to dest first).
+        const dx = this.destX - p.x;
+        const dz = this.destZ - p.z;
+        const sx = dx === 0 ? 0 : Math.sign(dx);
+        const sz = dz === 0 ? 0 : Math.sign(dz);
+
+        const cands: [number, number][] = [];
+        // axis steps first
+        if (sx !== 0) cands.push([p.x + sx, p.z]);
+        if (sz !== 0) cands.push([p.x, p.z + sz]);
+        // diagonals
+        if (sx !== 0 && sz !== 0) {
+            cands.push([p.x + sx, p.z + sz]);
+            if (Math.abs(dx) > Math.abs(dz)) {
+                cands.push([p.x + sx, p.z + (sz > 0 ? -sz : sz)]);
+            } else {
+                cands.push([p.x + (sx > 0 ? -sx : sx), p.z + sz]);
+            }
+        }
+        // remaining diagonals
+        for (const [dx2, dz2] of [
+            [1, 1],
+            [1, -1],
+            [-1, 1],
+            [-1, -1]
+        ]) {
+            const cx = p.x + dx2,
+                cz = p.z + dz2;
+            if (!cands.some(([a, b]) => a === cx && b === cz)) {
+                cands.push([cx, cz]);
+            }
+        }
+
+        cands.sort((a, b) => {
+            const da = Math.max(Math.abs(a[0] - this.destX), Math.abs(a[1] - this.destZ));
+            const db = Math.max(Math.abs(b[0] - this.destX), Math.abs(b[1] - this.destZ));
+            return da - db;
+        });
+
+        for (const [cx, cz] of cands) {
+            if (cx === p.x && cz === p.z) continue;
+            if (!bot.validCoords(cx, cz)) continue;
+            // Don't step away from the destination
+            const cDist = Math.max(Math.abs(cx - this.destX), Math.abs(cz - this.destZ));
+            const pDist = Math.max(Math.abs(p.x - this.destX), Math.abs(p.z - this.destZ));
+            if (cDist >= pDist) {
+                continue;
+            }
+            // Single-tile collision check — bypasses A* entirely
+            if (!canTravel(p.level, p.x, p.z, cx - p.x, cz - p.z, 1, 0, CollisionType.NORMAL)) {
+                continue;
+            }
+            // Use walkSegment (findPath-based) for reliable single-tile movement
+            const res = bot.walkSegment(cx, cz);
+            if (res.ok) {
+                return 'running';
+            }
+            // door_opening: a door task is in progress — keep running, the door
+            // task advances independently and the next tick re-paths successfully
+            if (res.reason === 'door_opening') {
+                return 'running';
+            }
+        }
+
+        // Debug: log when we're about to abort
+        botLog.append('reflex', {
+            kind: 'stepwalk_about_to_abort',
+            x: p.x,
+            z: p.z,
+            destX: this.destX,
+            destZ: this.destZ,
+            dist: Math.max(Math.abs(p.x - this.destX), Math.abs(p.z - this.destZ)),
+            bestDist: this.bestDist,
+            stuckTicks: this.stuckTicks,
+            cands: cands.length
+        });
+        return 'aborted';
     }
 }
 

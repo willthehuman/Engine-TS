@@ -20,7 +20,7 @@ import LocType from '#/cache/config/LocType.js';
 import { Interaction } from '#/engine/entity/Interaction.js';
 import ServerTriggerType from '#/engine/script/ServerTriggerType.js';
 import { botLog } from './EventLog.js';
-import { FollowRoutine, type Routine } from './routines.js';
+import { FollowRoutine, WalkRoutine, StepWalkRoutine, type Routine } from './routines.js';
 import { resolveOp } from './interact.js';
 
 export interface Persona {
@@ -54,9 +54,11 @@ export class BotPlayer {
     private actionsThisMinute = 0;
     private minuteWindowStart = Date.now();
     private lastWalkKey = '';
-    private doorTask: { x: number; z: number; type: number; level: number; opIndex: number; phase: 'walk' | 'fire' | 'wait'; ticks: number } | null = null;
+    private doorTask: { x: number; z: number; type: number; level: number; opIndex: number; phase: 'walk' | 'fire' | 'wait'; ticks: number; refired?: boolean } | null = null;
     private lastDoorOpenTick = -100;
     private doorsOpenedThisGoal = 0;
+    private walkRetryCount = 0;
+    static readonly MAX_WALK_RETRIES = 4;
     static readonly SAY_COOLDOWN_TICKS = 5; // 1 say / 3s
     static readonly MOVE_COOLDOWN_TICKS = 1; // 2 moves / s
     static readonly MAX_ACTIONS_PER_MIN = 25;
@@ -138,11 +140,34 @@ export class BotPlayer {
                     this.emitGoalDone('done'); // whole queue drained
                 }
             } else if (done === 'aborted') {
-                this.goalSteps.push(`${this.describeRoutine(this.routine)} aborted`);
+                const wasStepWalk = this.routine instanceof StepWalkRoutine;
+                const raw = this.routine as unknown as Record<string, unknown>;
+                const destX = typeof raw.destX === 'number' ? raw.destX : undefined;
+                const destZ = typeof raw.destZ === 'number' ? raw.destZ : undefined;
+                botLog.append('reflex', { kind: 'stepwalk_aborted', wasStepWalk, destX, destZ, keys: this.routine ? Object.keys(this.routine) : [], constructorName: this.routine?.constructor?.name ?? 'null' });
+                this.goalSteps.push(`${this.describeRoutine(this.routine)} aborted (wasStepWalk=${wasStepWalk} destX=${destX} destZ=${destZ})`);
                 this.routine = null;
                 this.currentRoutineName = null;
-                this.routineQueue.length = 0;
-                this.emitGoalDone('aborted');
+                if (wasStepWalk && destX !== undefined && destZ !== undefined) {
+                    // stepwalk got stuck (wall/door) — retry with full pathfinding
+                    // (WalkRoutine → walkSegment → findPath → openDoorOf → door task)
+                    this.enqueue(new WalkRoutine(destX, destZ));
+                    botLog.append('action', { action: 'stepwalk_fallback', x: destX, z: destZ });
+                } else if (destX !== undefined && destZ !== undefined) {
+                    // WalkRoutine got stuck — the door may be in the process of
+                    // opening. Retry up to MAX_WALK_RETRIES times.
+                    this.walkRetryCount++;
+                    if (this.walkRetryCount > BotPlayer.MAX_WALK_RETRIES) {
+                        this.routineQueue.length = 0;
+                        this.emitGoalDone('aborted');
+                    } else {
+                        this.enqueue(new WalkRoutine(destX, destZ));
+                        botLog.append('action', { action: 'walkretry', x: destX, z: destZ, retry: this.walkRetryCount });
+                    }
+                } else {
+                    this.routineQueue.length = 0;
+                    this.emitGoalDone('aborted');
+                }
             }
         } else {
             this.nextRoutine();
@@ -176,9 +201,14 @@ export class BotPlayer {
         const old = this.goalLabel;
         const wasActive = this.routine !== null || this.routineQueue.length > 0;
         this.clearQueue();
+        this.walkRetryCount = 0;
         this.goalLabel = steps.join(' | ');
         this.goalSteps = [];
         for (const r of routines) {
+            // Always use StepWalkRoutine for stepwalk goals — it walks
+            // tile-by-tile and handles doors via walkSegment.
+            // (WalkRoutine's stuck detection has issues with door tasks
+            // that walk away from the destination.)
             this.enqueue(r);
         }
         if (old && wasActive) {
@@ -456,8 +486,28 @@ export class BotPlayer {
             task.ticks = 0;
             return;
         }
-        // wait: collision update follows the loc change
-        if (task.ticks++ > 12) {
+        // wait: verify the loc actually changed (gone / morphed). If the op
+        // didn't take, re-fire ONCE (fresh interaction); then give up and let
+        // walkSegment rescan. (2026-09-12: fired-once-blind left the door
+        // closed and the walk aborted 4x — with the routines frozen during
+        // this wait, the op now gets its stepsTaken===0 tick to execute.)
+        const loc = World.getLoc(task.x, task.z, task.level, task.type);
+        const changed = !loc || loc.isChanged() || loc.type !== task.type;
+        if (changed) {
+            if (task.ticks++ > 4) {
+                this.doorTask = null;
+                this.lastDoorOpenTick = World.currentTick;
+            }
+            return;
+        }
+        if (task.ticks++ > 6) {
+            if (!task.refired) {
+                task.refired = true;
+                task.phase = 'fire';
+                task.ticks = 0;
+                p.clearInteraction(); // fresh interaction — the old one may be stuck
+                return;
+            }
             this.doorTask = null;
             this.lastDoorOpenTick = World.currentTick;
         }
@@ -517,7 +567,7 @@ export class BotPlayer {
         return { ok: true };
     }
 
-    private validCoords(x: number, z: number): boolean {
+    validCoords(x: number, z: number): boolean {
         return typeof x === 'number' && typeof z === 'number' && Number.isInteger(x) && Number.isInteger(z);
     }
 
@@ -543,6 +593,15 @@ export class BotPlayer {
                     if (!findPath(p.level, c.x, c.z, x, z)) continue;
                     const hop = findPath(p.level, p.x, p.z, c.x, c.z);
                     if (hop && hop.length > 0) {
+                        // Only accept the hop if it actually gets the player
+                        // closer to the destination. A hop that doesn't reduce
+                        // distance means the self-heal found a dead-end (e.g.
+                        // the player is next to a closed door and the "path"
+                        // through the door is actually blocked). Returning
+                        // false here triggers openDoorOf, which is what we need.
+                        const oldDist = Math.max(Math.abs(p.x - x), Math.abs(p.z - z));
+                        const newDist = Math.max(Math.abs(c.x - x), Math.abs(c.z - z));
+                        if (newDist >= oldDist) continue;
                         p.queueWaypoints(hop);
                         return true;
                     }
