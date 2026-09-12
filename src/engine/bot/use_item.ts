@@ -192,6 +192,23 @@ export class UseItemRoutine implements Routine {
                 if (ok) {
                     p.opcalled = true;
                     this.firedAt = World.currentTick;
+                    // Engine reach check (rsmod.reached) returns false for size-2
+                    // NPCs (cow) even when adjacent — the interaction never executes.
+                    // Run the resolved op script directly when the engine won't.
+                    let direct = false;
+                    try {
+                        const te: any = t.entity();
+                        if (te && p.target === te && !p.inOperableDistance(te)) {
+                            const opScript = p.getOpTrigger();
+                            if (opScript) {
+                                p.runScript(ScriptRunner.init(opScript, p, te), true);
+                                direct = true;
+                            }
+                        }
+                    } catch {
+                        /* leave it to the engine */
+                    }
+                    botLog.append('action', { action: 'use_direct', ran: direct, item: held.name, on: this.targetName });
                     botLog.append('action', { action: 'use_item', item: held.name, on: this.targetName, kind: t.kind });
                     if (World.currentTick - this.firedAt > 4) {
                         return 'done';
