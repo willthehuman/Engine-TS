@@ -157,7 +157,7 @@ export class BotPlayer {
                     } else {
                         // stepwalk got stuck (wall/door) — retry with full
                         // pathfinding (WalkRoutine → door task machinery)
-                        this.enqueue(new WalkRoutine(destX, destZ));
+                        this.enqueueFront(new WalkRoutine(destX, destZ));
                         botLog.append('action', { action: 'stepwalk_fallback', x: destX, z: destZ });
                     }
                 } else if (destX !== undefined && destZ !== undefined) {
@@ -170,14 +170,15 @@ export class BotPlayer {
                             // last resort (stale-A*/door-dense routes) before
                             // the goal dies
                             this.stepWalkTried = true;
-                            this.enqueue(new StepWalkRoutine(destX, destZ));
+                            this.enqueueFront(new StepWalkRoutine(destX, destZ));
                             botLog.append('action', { action: 'stepwalk_lastresort', x: destX, z: destZ });
                         } else {
                             this.routineQueue.length = 0;
                             this.emitGoalDone('aborted');
                         }
                     } else {
-                        this.enqueue(new WalkRoutine(destX, destZ));
+                        // retry FIRST — remaining goal steps wait for the walk
+                        this.enqueueFront(new WalkRoutine(destX, destZ));
                         botLog.append('action', { action: 'walkretry', x: destX, z: destZ, retry: this.walkRetryCount });
                     }
                 } else {
@@ -209,6 +210,15 @@ export class BotPlayer {
             this.clearRoutines(); // emits goal_superseded when killing a tracked goal
         }
         this.routineQueue.push(r);
+    }
+
+    /**
+     * Put a routine at the FRONT of the queue. Retries of the CURRENT step
+     * must run before the goal's remaining steps — a backend enqueue let
+     * compound-goal retries execute AFTER later steps (2026-09-12 fix).
+     */
+    enqueueFront(r: Routine): void {
+        this.routineQueue.unshift(r);
     }
 
     /** Goal label for completion signals (set_goal DSL). Null = free routines, no signal. */
