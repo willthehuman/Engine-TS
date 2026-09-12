@@ -73,6 +73,7 @@ export class UseItemRoutine implements Routine {
     private lastX = -1;
     private lastZ = -1;
     private stuckTicks = 0;
+    private tick = 0;
     private worldTarget: { x: number; z: number; level: number; entity: () => Entity; kind: 'loc' | 'npc' | 'obj' } | null = null;
 
     constructor(item: string, targetKind: UseTargetKind, targetName: string) {
@@ -84,6 +85,12 @@ export class UseItemRoutine implements Routine {
     step(bot: BotPlayer): RoutineStatus {
         const p = bot.player;
 
+        // periodic phase telemetry (debug: the use loop was silent while stuck)
+        this.tick = (this.tick ?? 0) + 1;
+        if (this.tick % 8 === 0) {
+            const wt = this.worldTarget as { x: number; z: number } | null;
+            botLog.append('action', { action: 'use_tick', phase: this.phase, tx: wt?.x, tz: wt?.z, px: p.x, pz: p.z, stuck: this.stuckTicks, inter: p.hasInteraction() });
+        }
         switch (this.phase) {
             case 'FIND': {
                 const held = findInInventory(bot, this.itemName);
