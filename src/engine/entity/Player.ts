@@ -1254,6 +1254,18 @@ export default class Player extends PathingEntity {
 
         const followOp = this.targetOp === ServerTriggerType.APPLAYER3 || this.targetOp === ServerTriggerType.OPPLAYER3;
 
+        // bot telemetry: what the engine sees for a pending USE interaction
+        if (this.targetOp === ServerTriggerType.APNPCU) {
+            botLog.append('action', {
+                action: 'pi_trace',
+                hasTarget: !!this.target,
+                canAccess: this.canAccess(),
+                dist: this.target ? Math.max(Math.abs(this.target.x - this.x), Math.abs(this.target.z - this.z)) : -1,
+                inOpDist: this.target ? this.inOperableDistance(this.target) : false,
+                opFound: !!this.getOpTrigger()
+            });
+        }
+
         let interacted = false;
 
         // If there is a target and p_access is available, try to interact before movement
