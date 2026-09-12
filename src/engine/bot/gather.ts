@@ -303,13 +303,22 @@ export class GatherRoutine implements Routine {
                 this.lastPos = { x: p.x, z: p.z };
             }
             if (!p.hasWaypoints()) {
-                const cands: { x: number; z: number }[] = [{ x: t.x, z: t.z }];
+                // Stand candidates around the target, ordered so the bot walks
+                // to a stand from which the target is REACHABLE (clear walk-line)
+                // and only then nearest: walking to the closest tile that cannot
+                // hit the target caused fence-side ping-pong (2026-09-12).
+                const cands: { x: number; z: number; d: number; see: boolean }[] = [{ x: t.x, z: t.z, d: 0, see: false }];
                 for (let ax = -1; ax <= 1; ax++) {
                     for (let az = -1; az <= 1; az++) {
                         if (ax === 0 && az === 0) continue;
-                        cands.push({ x: t.x + ax, z: t.z + az });
+                        cands.push({ x: t.x + ax, z: t.z + az, d: 0, see: false });
                     }
                 }
+                for (const c of cands) {
+                    c.d = Math.max(Math.abs(c.x - p.x), Math.abs(c.z - p.z));
+                    c.see = isLineOfWalk(p.level, c.x, c.z, t.x, t.z);
+                }
+                cands.sort((a, b) => (a.see === b.see ? a.d - b.d : a.see ? -1 : 1));
                 for (const c of cands) {
                     if (bot.walkSegment(c.x, c.z).ok) return 'running';
                 }

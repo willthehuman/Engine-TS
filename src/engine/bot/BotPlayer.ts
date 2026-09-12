@@ -57,6 +57,10 @@ export class BotPlayer {
     private doorTask: { x: number; z: number; type: number; level: number; opIndex: number; phase: 'walk' | 'fire' | 'wait'; ticks: number; refired?: boolean } | null = null;
     private lastDoorOpenTick = -100;
     private doorsOpenedThisGoal = 0;
+    /** doors that failed to improve anything this goal — try the NEXT nearest
+     *  instead of the same unhelpful one forever (2026-09-12: task re-picked
+     *  the farmhouse door (3189,3275) every cycle while the pen gate stayed shut) */
+    private doorBlacklist = new Set<string>();
     private walkRetryCount = 0;
     private stepWalkTried = false;
     static readonly MAX_WALK_RETRIES = 4;
@@ -244,6 +248,7 @@ export class BotPlayer {
         this.walkRetryCount = 0;
         this.stepWalkTried = false;
         this.doorsOpenedThisGoal = 0;
+        this.doorBlacklist.clear();
         this.goalLabel = steps.join(' | ');
         this.goalSteps = [];
         for (const r of routines) {
@@ -462,6 +467,7 @@ export class BotPlayer {
         if (task.phase === 'walk') {
             if (task.ticks++ > 40) {
                 botLog.append('reflex', { kind: 'door_task_giveup', phase: 'walk_timeout', x: task.x, z: task.z });
+                this.doorBlacklist.add(`${task.x},${task.z}`);
                 this.doorTask = null; // couldn't get adjacent — give up this door
                 this.lastDoorOpenTick = World.currentTick;
                 return;
@@ -506,6 +512,7 @@ export class BotPlayer {
                 }
             }
             botLog.append('reflex', { kind: 'door_task_giveup', phase: 'walk_stuck', x: task.x, z: task.z });
+            this.doorBlacklist.add(`${task.x},${task.z}`);
             this.doorTask = null; // fully stuck
             this.lastDoorOpenTick = World.currentTick;
             return;
@@ -558,6 +565,7 @@ export class BotPlayer {
                 return;
             }
             botLog.append('reflex', { kind: 'door_task_end', x: task.x, z: task.z, changed: false });
+            this.doorBlacklist.add(`${task.x},${task.z}`);
             this.doorTask = null;
             this.lastDoorOpenTick = World.currentTick;
         }
@@ -579,6 +587,7 @@ export class BotPlayer {
                 if (!name.includes('door') && !name.includes('gate')) continue;
                 const d = Math.max(Math.abs(loc.x - p.x), Math.abs(loc.z - p.z));
                 if (d > 14 || d >= bestDist) continue;
+                if (this.doorBlacklist.has(`${loc.x},${loc.z}`)) continue;
                 const ops = { op: lt?.op ?? [] };
                 const op = resolveOp(ops, 'open') ?? resolveOp(ops, 1); // first visible op fallback
                 if (!op) continue;
