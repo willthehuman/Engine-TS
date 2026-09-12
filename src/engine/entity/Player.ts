@@ -1,3 +1,4 @@
+import { botLog } from '#/engine/bot/EventLog.js';
 import { PlayerInfoProt, Visibility } from '#/network/rsbuf/index.js';
 import { CollisionFlag, CollisionType } from '#/engine/routefinder/index.js';
 
@@ -1118,6 +1119,7 @@ export default class Player extends PathingEntity {
 
     defaultOp() {
         const opTrigger = this.getOpTrigger();
+        botLog.append('action', { action: 'exec_default', op: this.targetOp, found: !!opTrigger });
         const apTrigger = this.getApTrigger();
 
         if (!Environment.node.production && !opTrigger && !apTrigger) {
@@ -1173,6 +1175,7 @@ export default class Player extends PathingEntity {
             this.target = null;
             this.clearWaypoints();
 
+            botLog.append('action', { action: 'exec_op', op: this.targetOp });
             this.executeScript(ScriptRunner.init(opTrigger, this, target), true);
 
             // If p_opnpc was called, remember it for later
