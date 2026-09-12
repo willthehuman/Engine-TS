@@ -233,6 +233,7 @@ export class BotPlayer {
         this.clearQueue();
         this.walkRetryCount = 0;
         this.stepWalkTried = false;
+        this.doorsOpenedThisGoal = 0;
         this.goalLabel = steps.join(' | ');
         this.goalSteps = [];
         for (const r of routines) {
@@ -585,6 +586,9 @@ export class BotPlayer {
         if (!this.pathAndQueue(x, z)) {
             if (this.doorsOpenedThisGoal < 4 && this.openDoorOf()) {
                 return { ok: false, reason: 'door_opening' };
+            }
+            if (this.doorsOpenedThisGoal >= 4) {
+                botLog.append('reflex', { kind: 'door_budget_exhausted', doorsOpenedThisGoal: this.doorsOpenedThisGoal });
             }
             return { ok: false, reason: 'no_path' };
         }
