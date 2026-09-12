@@ -179,6 +179,7 @@ export class UseItemRoutine implements Routine {
                 p.lastUseSlot = held.slot;
                 const trigger = this.worldTarget!.kind === 'loc' ? ServerTriggerType.APLOCU : this.worldTarget!.kind === 'npc' ? ServerTriggerType.APNPCU : ServerTriggerType.APOBJU;
                 const ok = p.setInteraction(Interaction.ENGINE, t.entity(), trigger);
+                botLog.append('action', { action: 'use_fire', item: held.name, on: this.targetName, kind: t.kind, ok, dist });
                 if (ok) {
                     p.opcalled = true;
                     this.firedAt = World.currentTick;
